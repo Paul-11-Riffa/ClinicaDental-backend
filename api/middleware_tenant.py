@@ -1,5 +1,6 @@
 from django.http import HttpResponseForbidden
-from .models import Usuario, Empresa
+from tenancy.models import Empresa
+from users.models import Usuario
 import logging
 
 logger = logging.getLogger(__name__)

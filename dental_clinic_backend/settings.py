@@ -130,7 +130,7 @@ INSTALLED_APPS = [
     "notifications",    # Sistema de notificaciones
     # "no_show_policies", # Comentada temporalmente - migraremos después
     "whitenoise.runserver_nostatic",
-    # "api",            # Comentada temporalmente - migraremos gradualmente
+    # "api",            # Comentada temporalmente - conflicto con apps modularizadas
 ]
 
 # ------------------------------------
@@ -147,9 +147,9 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     # Multi-tenancy: Identificar empresa (tenant)
-    "tenancy.middleware.TenantMiddleware",
+    "api.middleware_tenant.TenantMiddleware",
     # Multi-tenancy: Enrutamiento dinámico (después de TenantMiddleware)
-    # "dental_clinic_backend.url_router.DynamicURLMiddleware",  # TEMPORALMENTE DESHABILITADO
+    "dental_clinic_backend.middleware_routing.TenantRoutingMiddleware",
     # Auditoría (después de todo)
     # "users.middleware.AuditMiddleware",  # Migrar después
 ]
@@ -351,17 +351,17 @@ LOGGING = {
     },
     'root': {
         'handlers': ['console'],
-        'level': 'INFO',
+        'level': 'WARNING',
     },
     'loggers': {
         'django': {
             'handlers': ['console'],
-            'level': 'DEBUG',
+            'level': 'WARNING',
             'propagate': False,
         },
         'django.request': {
             'handlers': ['console'],
-            'level': 'DEBUG',
+            'level': 'INFO',
             'propagate': False,
         },
     },

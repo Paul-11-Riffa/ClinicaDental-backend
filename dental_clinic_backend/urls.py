@@ -5,9 +5,6 @@ Sistema de enrutamiento dinámico para Multi-Tenancy:
 - Dominio público: Administración de tenants y landing page
 - Subdominios: Aplicación de clínica dental específica por tenant
 """
-from django.contrib import admin
-from django.urls import path, include
-from django.http import JsonResponse
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -15,50 +12,20 @@ from django.conf.urls.static import static
 from .url_patterns import urlpatterns_public, urlpatterns_tenant
 
 
-def api_welcome(request):
-    """Vista de bienvenida adaptativa según el contexto."""
-    tenant = getattr(request, 'tenant', None)
-    
-    if tenant:
-        # Vista para tenant específico
-        return JsonResponse({
-            "message": f"🦷 {tenant.nombre} - API Clínica Dental",
-            "tenant": tenant.nombre,
-            "subdomain": tenant.subdomain,
-            "version": "1.0.0",
-            "status": "online",
-            "endpoints": {
-                "pacientes": "/api/clinic/pacientes/",
-                "consultas": "/api/clinic/consultas/",
-                "usuarios": "/api/users/usuarios/",
-                "notificaciones": "/api/notifications/tipos/",
-            }
-        })
+def get_urlpatterns(request=None):
+    """
+    Función para obtener los patrones de URL según el contexto.
+    Si hay un tenant, usar patrones de tenant; sino, usar patrones públicos.
+    """
+    if request and hasattr(request, 'tenant') and request.tenant:
+        return urlpatterns_tenant
     else:
-        # Vista para dominio público
-        return JsonResponse({
-            "message": "🏢 Dental Clinic SaaS - Portal de Administración",
-            "description": "Sistema de gestión multi-tenant para clínicas dentales",
-            "version": "1.0.0",
-            "status": "online",
-            "endpoints": {
-                "admin": "/admin/",
-                "tenancy": "/api/tenancy/",
-                "documentation": "Coming soon"
-            }
-        })
+        return urlpatterns_public
 
 
-# Por defecto, incluir todas las apps para desarrollo
-# El middleware dinámico se encargará de cambiar esto según el tenant
-urlpatterns = [
-    path("", api_welcome, name="welcome"),
-    path("admin/", admin.site.urls),
-    path("api/tenancy/", include("tenancy.urls")),
-    path("api/clinic/", include("clinic.urls")),
-    path("api/users/", include("users.urls")),
-    path("api/notifications/", include("notifications.urls")),
-]
+# Django necesita una variable urlpatterns por defecto
+# El middleware TenantRoutingMiddleware se encargará del routing dinámico
+urlpatterns = urlpatterns_public  # Por defecto, usar el patrón público
 
 # URLs estáticas en desarrollo
 if settings.DEBUG:
