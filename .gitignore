@@ -23,3 +23,15 @@ venv/
 **/venv/
 .env
 .env.*
+# Archivos de IDEs (PyCharm, VSCode)
+.idea/
+.vscode/
+
+# Archivos de entorno y bases de datos locales
+.env
+db.sqlite3
+*.pyc
+
+# Archivos estáticos y de media (se generan en producción)
+staticfiles/
+media/
