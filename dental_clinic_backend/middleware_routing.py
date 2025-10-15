@@ -25,17 +25,11 @@ class TenantRoutingMiddleware:
         # Determinar qué configuración de URLs usar
         if hasattr(request, 'tenant') and request.tenant:
             # Hay un tenant, usar URLs del tenant
-            urlconf = 'dental_clinic_backend.urlconf_tenant'
+            request.urlconf = 'dental_clinic_backend.urlconf_tenant'
         else:
-            # No hay tenant, usar URLs públicas
-            urlconf = 'dental_clinic_backend.urlconf_public'
-        
-        # Establecer la configuración de URLs para esta request
-        set_urlconf(urlconf)
+            # No hay tenant, usar URLs públicas  
+            request.urlconf = 'dental_clinic_backend.urlconf_public'
         
         response = self.get_response(request)
-        
-        # Resetear la configuración de URLs después de la respuesta
-        set_urlconf(None)
         
         return response
