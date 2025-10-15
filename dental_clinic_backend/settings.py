@@ -94,6 +94,12 @@ CSRF_TRUSTED_ORIGINS = [
     "http://norte.localhost:5173",
     "http://sur.localhost:5173",
     "http://este.localhost:5173",
+    # Multi-tenancy: Permitir subdominios en Django development server
+    "http://localhost:8000",
+    "http://*.localhost:8000",
+    "http://norte.localhost:8000",
+    "http://sur.localhost:8000",
+    "http://este.localhost:8000",
     # Multi-tenancy: Permitir subdominios en producción
     "https://notificct.dpdns.org",
     "https://*.notificct.dpdns.org",
@@ -117,9 +123,14 @@ INSTALLED_APPS = [
     "rest_framework",
     'django_filters',
     "rest_framework.authtoken",
-    "api",
+    # Nuevas apps modularizadas
+    "tenancy",          # Gestión de empresas y multi-tenancy
+    "users",            # Usuarios y autenticación
+    "clinic",           # Lógica de clínica dental
+    "notifications",    # Sistema de notificaciones
+    # "no_show_policies", # Comentada temporalmente - migraremos después
     "whitenoise.runserver_nostatic",
-    "no_show_policies",
+    # "api",            # Comentada temporalmente - migraremos gradualmente
 ]
 
 # ------------------------------------
@@ -135,9 +146,12 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
-    "api.middleware_tenant.TenantMiddleware",  # Multi-tenancy: identificar empresa
-    "api.middleware.AuditMiddleware",  # Auditoría (después de TenantMiddleware)
-
+    # Multi-tenancy: Identificar empresa (tenant)
+    "tenancy.middleware.TenantMiddleware",
+    # Multi-tenancy: Enrutamiento dinámico (después de TenantMiddleware)
+    # "dental_clinic_backend.url_router.DynamicURLMiddleware",  # TEMPORALMENTE DESHABILITADO
+    # Auditoría (después de todo)
+    # "users.middleware.AuditMiddleware",  # Migrar después
 ]
 
 ROOT_URLCONF = "dental_clinic_backend.urls"
