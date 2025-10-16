@@ -80,6 +80,12 @@ class TenantMiddleware:
         # VALIDACIÓN DE SEGURIDAD: Si el usuario está autenticado y hay un tenant,
         # verificar que el usuario pertenece a esa empresa
         if request.user.is_authenticated and tenant_empresa:
+            # EXCEPCIÓN: Los superusuarios pueden acceder a cualquier empresa
+            if request.user.is_superuser or request.user.is_staff:
+                logger.debug(f"[TenantMiddleware] Superusuario '{request.user.email}' accede sin restricción de tenant")
+                response = self.get_response(request)
+                return response
+
             # Excluir rutas públicas que no necesitan validación de tenant
             excluded_paths = [
                 '/admin/',

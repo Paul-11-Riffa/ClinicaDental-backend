@@ -2,13 +2,14 @@
 Django settings for dental_clinic_backend project.
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-# Cargar variables de entorno desde archivo .env
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(os.path.join(BASE_DIR, '.env'))
+
+# ... resto de la configuración
 # ------------------------------------
 # Seguridad / Debug
 # ------------------------------------

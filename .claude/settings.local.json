@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(psql:*)",
+      "Bash(where postgres)",
+      "Bash(net start:*)",
+      "Bash(move \"C:\\Users\\paulr\\PycharmProjects\\sitwo-project-backend-master\\api\\.env\" \"C:\\Users\\paulr\\PycharmProjects\\sitwo-project-backend-master\\.env\")",
+      "Bash(mv:*)",
+      "Bash(python manage.py makemigrations:*)",
+      "Bash(where:*)",
+      "Bash(python poblar_datos_demo.py:*)",
+      "Bash(findstr:*)",
+      "Bash(python manage.py shell:*)",
+      "Read(//c/Users/paulr/**)",
+      "Bash(find:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(git add:*)",
+      "Bash(del nul)",
+      "Bash(rm:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

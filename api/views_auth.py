@@ -273,7 +273,7 @@ def auth_login(request):
         logger.info(f"🏢 Tenant detectado: {tenant.nombre if tenant else 'None'}")
 
         # Resolver el perfil de dominio y validar pertenencia al tenant ANTES de emitir token
-        usuario_query = Usuario.objects.filter(correoelectronico=email)
+        usuario_query = Usuario.objects.select_related('idtipousuario').filter(correoelectronico=email)
         if tenant:
             usuario_query = usuario_query.filter(empresa=tenant)
         usuario = usuario_query.first()
@@ -322,7 +322,7 @@ def auth_login(request):
                 subtipo = "odontologo"
             elif hasattr(usuario, "recepcionista"):
                 subtipo = "recepcionista"
-            elif usuario.idtipousuario_id == 1:
+            elif usuario.idtipousuario and usuario.idtipousuario.rol.strip().lower() == "administrador":
                 subtipo = "administrador"
         except Exception:
             pass  # Mantener subtipo por defecto
@@ -384,7 +384,7 @@ def auth_user_info(request):
         user = request.user
 
         # Filtrar por tenant si está disponible (multi-tenancy)
-        usuario_query = Usuario.objects.filter(correoelectronico=user.email)
+        usuario_query = Usuario.objects.select_related('idtipousuario').filter(correoelectronico=user.email)
         tenant = getattr(request, 'tenant', None)
         if tenant:
             usuario_query = usuario_query.filter(empresa=tenant)
@@ -406,7 +406,7 @@ def auth_user_info(request):
                 subtipo = "odontologo"
             elif hasattr(usuario, "recepcionista"):
                 subtipo = "recepcionista"
-            elif usuario.idtipousuario_id == 1:
+            elif usuario.idtipousuario and usuario.idtipousuario.rol.strip().lower() == "administrador":
                 subtipo = "administrador"
         except Exception:
             pass
