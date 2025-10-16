@@ -33,6 +33,7 @@ ALLOWED_HOSTS = [
     "notificct.dpdns.org",
     "balancearin-1841542738.us-east-2.elb.amazonaws.com",
     ".localhost",
+    ".test",  # Para desarrollo local con subdominios
     ".notificct.dpdns.org",
     # Vercel deployment
     "buy-dental-smile.vercel.app",
@@ -84,6 +85,20 @@ else:
 
 CORS_ALLOW_CREDENTIALS = True
 
+# Permitir headers personalizados (especialmente x-tenant-subdomain)
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'x-tenant-subdomain',  # Header personalizado para multi-tenancy
+]
+
 CSRF_TRUSTED_ORIGINS = [
     "http://18.220.214.178",
     "https://18.220.214.178",
@@ -123,14 +138,15 @@ INSTALLED_APPS = [
     "rest_framework",
     'django_filters',
     "rest_framework.authtoken",
-    # Nuevas apps modularizadas
-    "tenancy",          # Gestión de empresas y multi-tenancy
-    "users",            # Usuarios y autenticación
-    "clinic",           # Lógica de clínica dental
-    "notifications",    # Sistema de notificaciones
-    # "no_show_policies", # Comentada temporalmente - migraremos después
+    # App principal - contiene todos los modelos
+    "api",            # App principal (Empresa, Usuario, Paciente, Consulta, etc)
+    "no_show_policies", # Políticas de no-show
     "whitenoise.runserver_nostatic",
-    # "api",            # Comentada temporalmente - conflicto con apps modularizadas
+    # Apps modularizadas - COMENTADAS TEMPORALMENTE (duplican tablas)
+    # "tenancy",          # Gestión de empresas y multi-tenancy
+    # "users",            # Usuarios y autenticación
+    # "clinic",           # Lógica de clínica dental
+    # "notifications",    # Sistema de notificaciones
 ]
 
 # ------------------------------------
@@ -146,8 +162,12 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Health check middleware (debe ir antes de TenantMiddleware)
+    "api.middleware_health.HealthCheckMiddleware",
     # Multi-tenancy: Identificar empresa (tenant)
     "api.middleware_tenant.TenantMiddleware",
+    # DIAGNÓSTICO TEMPORAL: Verificar tenant en admin
+    "api.middleware_admin_diagnostic.AdminTenantDiagnosticMiddleware",
     # Multi-tenancy: Enrutamiento dinámico (después de TenantMiddleware)
     "dental_clinic_backend.middleware_routing.TenantRoutingMiddleware",
     # Auditoría (después de todo)
@@ -351,17 +371,27 @@ LOGGING = {
     },
     'root': {
         'handlers': ['console'],
-        'level': 'WARNING',
+        'level': 'INFO',  # Cambiado de WARNING a INFO para ver más logs
     },
     'loggers': {
         'django': {
             'handlers': ['console'],
-            'level': 'WARNING',
+            'level': 'INFO',  # Cambiado de WARNING a INFO
             'propagate': False,
         },
         'django.request': {
             'handlers': ['console'],
             'level': 'INFO',
+            'propagate': False,
+        },
+        'django.server': {
+            'handlers': ['console'],
+            'level': 'INFO',  # Agregado para ver peticiones HTTP
+            'propagate': False,
+        },
+        'api': {
+            'handlers': ['console'],
+            'level': 'DEBUG',  # Logs de tu app
             'propagate': False,
         },
     },

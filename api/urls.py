@@ -1,4 +1,5 @@
 from django.urls import path, include
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.routers import DefaultRouter
 
 from . import views, views_auth, views_saas, views_stripe
@@ -20,6 +21,7 @@ router.register(r"tipos-consulta", views.TipodeconsultaViewSet, basename="tipos-
 router.register(r"tipos-usuario", views.TipodeusuarioViewSet, basename="tipos-usuario")
 router.register(r"usuarios", views.UsuarioViewSet, basename="usuarios")
 router.register(r"bitacora", views.BitacoraViewSet, basename="bitacora")
+router.register(r"reportes", views.ReporteViewSet, basename="reportes")
 
 # Historias Clínicas (HCE)
 router.register(r"historias-clinicas", views.HistorialclinicoViewSet, basename="historias-clinicas")
@@ -47,8 +49,8 @@ urlpatterns = [
 
     # Auth
     path("auth/csrf/", views_auth.csrf_token),
-    path("auth/register/", views_auth.auth_register),
-    path("auth/login/", views_auth.auth_login),
+    path("auth/register/", csrf_exempt(views_auth.auth_register)),
+    path("auth/login/", csrf_exempt(views_auth.auth_login)),
     path("auth/logout/", views_auth.auth_logout),
 
     # Perfil de usuario (única ruta para evitar conflicto)

@@ -24,19 +24,23 @@ from rest_framework.viewsets import GenericViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 
 from .models import (
-    Paciente, Consulta, Odontologo, Horario, Tipodeconsulta, Estadodeconsulta,  # <-- añadido Estadodeconsulta
+    Paciente, Consulta, Odontologo, Horario, Tipodeconsulta, Estadodeconsulta,
     Usuario, Tipodeusuario, Bitacora, Historialclinico, Consentimiento
 )
+
+from .models_notifications import HistorialNotificacion, DispositivoMovil
 
 from .serializers import (
     PacienteSerializer,
     ConsultaSerializer,
     CreateConsultaSerializer,
+    ConsultaReporteSerializer,
     OdontologoMiniSerializer,
     HorarioSerializer,
     TipodeconsultaSerializer,
     UpdateConsultaSerializer,
     UsuarioAdminSerializer,
+    UsuarioMeSerializer,
     TipodeusuarioSerializer,
     BitacoraSerializer,
     ReprogramarConsultaSerializer,
@@ -183,18 +187,18 @@ def _es_admin_por_tabla(request) -> bool:
 class PacienteViewSet(ReadOnlyModelViewSet):
     """
     API read-only de Pacientes.
-    Solo devuelve pacientes cuyo usuario tiene rol id=2 Y pertenecen a la empresa del tenant.
+    Devuelve todos los pacientes que pertenecen a la empresa del tenant.
     """
     permission_classes = [IsAuthenticated]
     serializer_class = PacienteSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    search_fields = ['codusuario__nombre', 'codusuario__apellido', 'carnetidentidad']
+    ordering_fields = ['codusuario__nombre', 'codusuario__apellido']
+    ordering = ['codusuario__nombre']
 
     def get_queryset(self):
         """Filtra pacientes por empresa (multi-tenancy)"""
-        queryset = (
-            Paciente.objects
-            .select_related("codusuario")
-            .filter(codusuario__idtipousuario_id=2)
-        )
+        queryset = Paciente.objects.select_related("codusuario")
 
         # Filtrar por tenant si está disponible
         if hasattr(self.request, 'tenant') and self.request.tenant:
@@ -212,8 +216,10 @@ class ConsultaViewSet(ModelViewSet):
     """
     permission_classes = [IsAuthenticated]
     serializer_class = ConsultaSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['codpaciente', 'fecha']
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+    filterset_fields = ['codpaciente', 'cododontologo', 'idestadoconsulta']
+    ordering_fields = ['fecha', 'id']
+    ordering = ['-fecha', '-id']
 
     def get_queryset(self):
         """Filtra consultas por empresa (multi-tenancy)"""
@@ -229,6 +235,21 @@ class ConsultaViewSet(ModelViewSet):
         # Filtrar por tenant si está disponible
         if hasattr(self.request, 'tenant') and self.request.tenant:
             queryset = queryset.filter(empresa=self.request.tenant)
+
+        # Manejar filtro especial de fecha
+        fecha_param = self.request.query_params.get('fecha', None)
+        if fecha_param:
+            if fecha_param.lower() == 'hoy':
+                from datetime import date
+                queryset = queryset.filter(fecha=date.today())
+            else:
+                # Intentar parsear como fecha ISO
+                try:
+                    from datetime import datetime
+                    fecha = datetime.strptime(fecha_param, '%Y-%m-%d').date()
+                    queryset = queryset.filter(fecha=fecha)
+                except ValueError:
+                    pass  # Ignorar fechas inválidas
 
         return queryset
 
@@ -313,7 +334,7 @@ Si necesitas cancelar o reprogramar tu cita, ponte en contacto con nosotros.
 
         # 1) borrar pendientes anteriores de esta consulta
         try:
-            HistorialNotificacionMN.objects.filter(
+            HistorialNotificacion.objects.filter(
                 estado="PENDIENTE",
                 datos_adicionales__consulta_id=consulta.id
             ).delete()
@@ -330,7 +351,7 @@ Si necesitas cancelar o reprogramar tu cita, ponte en contacto con nosotros.
             if cita_dt:
                 # único dispositivo activo del paciente (para fijar id al encolar)
                 device_id = (
-                    DispositivoMovilMN.objects
+                    DispositivoMovil.objects
                     .filter(codusuario=consulta.codpaciente.codusuario.codigo, activo=True)
                     .order_by("-ultima_actividad")
                     .values_list("id", flat=True)
@@ -338,7 +359,7 @@ Si necesitas cancelar o reprogramar tu cita, ponte en contacto con nosotros.
                 )
 
                 def _mk(title, body, when, label):
-                    HistorialNotificacionMN.objects.create(
+                    HistorialNotificacion.objects.create(
                         titulo=title,
                         mensaje=body,
                         datos_adicionales={
@@ -422,7 +443,7 @@ Si necesitas cancelar o reprogramar tu cita, ponte en contacto con nosotros.
 
         # borrar recordatorios pendientes asociados a esta consulta
         try:
-            HistorialNotificacionMN.objects.filter(
+            HistorialNotificacion.objects.filter(
                 estado="PENDIENTE",
                 datos_adicionales__consulta_id=consulta.pk
             ).delete()
@@ -504,7 +525,7 @@ class OdontologoViewSet(ReadOnlyModelViewSet):
 
     def get_queryset(self):
         """Filtra odontólogos por empresa (multi-tenancy)"""
-        queryset = Odontologo.objects.all()
+        queryset = Odontologo.objects.all().order_by('codusuario__nombre')
 
         # Filtrar por tenant si está disponible
         if hasattr(self.request, 'tenant') and self.request.tenant:
@@ -519,7 +540,7 @@ class HorarioViewSet(ReadOnlyModelViewSet):
 
     def get_queryset(self):
         """Filtra horarios por empresa (multi-tenancy)"""
-        queryset = Horario.objects.all()
+        queryset = Horario.objects.all().order_by('hora')
 
         # Filtrar por tenant si está disponible
         if hasattr(self.request, 'tenant') and self.request.tenant:
@@ -637,7 +658,7 @@ class TipodeconsultaViewSet(ReadOnlyModelViewSet):
 
     def get_queryset(self):
         """Filtra tipos de consulta por empresa (multi-tenancy)"""
-        queryset = Tipodeconsulta.objects.all()
+        queryset = Tipodeconsulta.objects.all().order_by('nombreconsulta')
 
         # Filtrar por tenant si está disponible
         if hasattr(self.request, 'tenant') and self.request.tenant:
@@ -728,7 +749,7 @@ class UserProfileView(RetrieveUpdateAPIView):
     Vista para leer y actualizar los datos del perfil del usuario autenticado.
     Soporta GET, PUT y PATCH.
     """
-    # serializer_class = UsuarioMeSerializer  # si deseas devolver/actualizar el perfil
+    serializer_class = UsuarioMeSerializer
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
@@ -962,9 +983,9 @@ class BitacoraViewSet(ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = BitacoraSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    search_fields = ['descripcion', 'usuario__nombre', 'usuario__apellido', 'ip_address']
-    ordering_fields = ['fecha_hora', 'accion', 'usuario__nombre']
-    ordering = ['-fecha_hora']  # Más recientes primero
+    search_fields = ['accion', 'usuario__nombre', 'usuario__apellido', 'ip_address']
+    ordering_fields = ['timestamp', 'accion', 'usuario__nombre']
+    ordering = ['-timestamp']  # Más recientes primero
 
     def get_queryset(self):
         # Solo admins pueden ver la bitácora
@@ -994,7 +1015,7 @@ class BitacoraViewSet(ReadOnlyModelViewSet):
             try:
                 fecha_desde = datetime.strptime(fecha_desde, '%Y-%m-%d')
                 fecha_desde = make_aware(fecha_desde)
-                queryset = queryset.filter(fecha_hora__gte=fecha_desde)
+                queryset = queryset.filter(timestamp__gte=fecha_desde)
             except ValueError:
                 pass
 
@@ -1002,7 +1023,7 @@ class BitacoraViewSet(ReadOnlyModelViewSet):
             try:
                 fecha_hasta = datetime.strptime(fecha_hasta, '%Y-%m-%d')
                 fecha_hasta = make_aware(fecha_hasta.replace(hour=23, minute=59, second=59))
-                queryset = queryset.filter(fecha_hora__lte=fecha_hasta)
+                queryset = queryset.filter(timestamp__lte=fecha_hasta)
             except ValueError:
                 pass
 
@@ -1021,12 +1042,12 @@ class BitacoraViewSet(ReadOnlyModelViewSet):
 
         # Estadísticas de los últimos 30 días
         fecha_limite = make_aware(datetime.now() - timedelta(days=30))
-        queryset = Bitacora.objects.filter(fecha_hora__gte=fecha_limite)
+        queryset = Bitacora.objects.filter(timestamp__gte=fecha_limite)
 
         # Contar por acción
         acciones = {}
         for registro in queryset:
-            accion = registro.get_accion_display()
+            accion = registro.accion
             acciones[accion] = acciones.get(accion, 0) + 1
 
         # Usuarios más activos
@@ -1046,7 +1067,7 @@ class BitacoraViewSet(ReadOnlyModelViewSet):
             inicio_dia = make_aware(fecha.replace(hour=0, minute=0, second=0, microsecond=0))
             fin_dia = make_aware(fecha.replace(hour=23, minute=59, second=59, microsecond=999999))
 
-            count = queryset.filter(fecha_hora__range=[inicio_dia, fin_dia]).count()
+            count = queryset.filter(timestamp__range=[inicio_dia, fin_dia]).count()
             actividad_diaria[fecha_str] = count
 
         return Response({
@@ -1085,7 +1106,7 @@ class BitacoraViewSet(ReadOnlyModelViewSet):
             try:
                 fecha_desde = datetime.strptime(fecha_desde, '%Y-%m-%d')
                 fecha_desde = make_aware(fecha_desde)
-                queryset = queryset.filter(fecha_hora__gte=fecha_desde)
+                queryset = queryset.filter(timestamp__gte=fecha_desde)
             except ValueError:
                 pass
 
@@ -1093,14 +1114,14 @@ class BitacoraViewSet(ReadOnlyModelViewSet):
             try:
                 fecha_hasta = datetime.strptime(fecha_hasta, '%Y-%m-%d')
                 fecha_hasta = make_aware(fecha_hasta.replace(hour=23, minute=59, second=59))
-                queryset = queryset.filter(fecha_hora__lte=fecha_hasta)
+                queryset = queryset.filter(timestamp__lte=fecha_hasta)
             except ValueError:
                 pass
 
         search = request.query_params.get('search', None)
         if search:
             queryset = queryset.filter(
-                Q(descripcion__icontains=search) |
+                Q(accion__icontains=search) |
                 Q(usuario__nombre__icontains=search) |
                 Q(usuario__apellido__icontains=search) |
                 Q(ip_address__icontains=search)
@@ -1140,14 +1161,14 @@ class BitacoraViewSet(ReadOnlyModelViewSet):
             usuario_nombre = f"{entry.usuario.nombre} {entry.usuario.apellido}" if entry.usuario else "Usuario anónimo"
 
             writer.writerow([
-                entry.fecha_hora.strftime('%d/%m/%Y %H:%M:%S'),
-                entry.get_accion_display(),
+                entry.timestamp.strftime('%d/%m/%Y %H:%M:%S'),
+                entry.accion,
                 usuario_nombre,
-                entry.descripcion or '',
+                entry.tabla_afectada or '',
                 entry.ip_address,
                 entry.user_agent or '',
-                entry.modelo_afectado or '',
-                entry.objeto_id or ''
+                entry.tabla_afectada or '',
+                entry.registro_id or ''
             ])
 
         return response
@@ -1189,17 +1210,17 @@ class BitacoraViewSet(ReadOnlyModelViewSet):
         elements.append(Spacer(1, 20))
 
         # Datos de la tabla
-        data = [['Fecha/Hora', 'Acción', 'Usuario', 'Descripción', 'IP']]
+        data = [['Fecha/Hora', 'Acción', 'Usuario', 'Tabla Afectada', 'IP']]
 
         for entry in queryset[:100]:  # Limitar a 100 para PDF
             usuario_nombre = f"{entry.usuario.nombre} {entry.usuario.apellido}" if entry.usuario else "Anónimo"
 
             data.append([
-                entry.fecha_hora.strftime('%d/%m/%Y %H:%M'),
-                entry.get_accion_display(),
+                entry.timestamp.strftime('%d/%m/%Y %H:%M'),
+                entry.accion,
                 usuario_nombre,
-                (entry.descripcion or '')[:50] + '...' if len(entry.descripcion or '') > 50 else (
-                        entry.descripcion or ''),
+                (entry.tabla_afectada or '')[:50] + '...' if len(entry.tabla_afectada or '') > 50 else (
+                        entry.tabla_afectada or ''),
                 entry.ip_address
             ])
 
@@ -1585,3 +1606,112 @@ class DocumentoClinicoViewSet(ModelViewSet):
         else:
             ip = request.META.get('REMOTE_ADDR')
         return ip
+
+
+# ============================================================================
+# REPORTES
+# ============================================================================
+class ReporteViewSet(viewsets.ViewSet):
+    """
+    ViewSet para generar reportes administrativos
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def list(self, request):
+        """Lista todas las consultas para reportes con filtros"""
+        if not _es_admin_por_tabla(request):
+            return Response(
+                {"detail": "No tienes permisos para ver reportes."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Filtrar por tenant
+        queryset = Consulta.objects.select_related(
+            'codpaciente__codusuario',
+            'cododontologo__codusuario',
+            'idestadoconsulta',
+            'idtipoconsulta',
+            'idhorario'
+        ).order_by('-fecha')
+        
+        if hasattr(request, 'tenant') and request.tenant:
+            queryset = queryset.filter(empresa=request.tenant)
+        
+        # Aplicar filtros de parámetros de consulta
+        fecha_inicio = request.query_params.get('fecha_inicio')
+        fecha_fin = request.query_params.get('fecha_fin')
+        odontologo_nombre = request.query_params.get('odontologo')
+        
+        # Filtrar por rango de fechas
+        if fecha_inicio:
+            try:
+                fecha_inicio_dt = datetime.strptime(fecha_inicio, '%d/%m/%Y').date()
+                queryset = queryset.filter(fecha__gte=fecha_inicio_dt)
+            except ValueError:
+                pass  # Ignorar formato inválido
+        
+        if fecha_fin:
+            try:
+                fecha_fin_dt = datetime.strptime(fecha_fin, '%d/%m/%Y').date()
+                queryset = queryset.filter(fecha__lte=fecha_fin_dt)
+            except ValueError:
+                pass  # Ignorar formato inválido
+        
+        # Filtrar por odontólogo (búsqueda por nombre completo)
+        if odontologo_nombre and odontologo_nombre.strip():
+            queryset = queryset.filter(
+                Q(cododontologo__codusuario__nombre__icontains=odontologo_nombre) |
+                Q(cododontologo__codusuario__apellido__icontains=odontologo_nombre)
+            )
+        
+        # Serializar consultas con valores planos (para Excel)
+        serializer = ConsultaReporteSerializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def consultas(self, request):
+        """Reporte de consultas por período"""
+        return self.list(request)
+    
+    @action(detail=False, methods=['get'])
+    def estadisticas(self, request):
+        """Estadísticas de consultas"""
+        if not _es_admin_por_tabla(request):
+            return Response(
+                {"detail": "No tienes permisos para ver reportes."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Filtrar por tenant
+        queryset = Consulta.objects.all()
+        if hasattr(request, 'tenant') and request.tenant:
+            queryset = queryset.filter(empresa=request.tenant)
+        
+        # Estadísticas básicas
+        total = queryset.count()
+        por_estado = {}
+        for estado in Estadodeconsulta.objects.all():
+            count = queryset.filter(idestadoconsulta=estado).count()
+            por_estado[estado.estado] = count
+        
+        return Response({
+            'total_consultas': total,
+            'por_estado': por_estado
+        })
+    
+    @action(detail=False, methods=['get'])
+    def pacientes(self, request):
+        """Reporte de pacientes - devuelve lista de pacientes"""
+        if not _es_admin_por_tabla(request):
+            return Response(
+                {"detail": "No tienes permisos para ver reportes."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        queryset = Paciente.objects.select_related('codusuario').order_by('codusuario__nombre')
+        if hasattr(request, 'tenant') and request.tenant:
+            queryset = queryset.filter(empresa=request.tenant)
+        
+        # Serializar pacientes
+        serializer = PacienteSerializer(queryset, many=True)
+        return Response(serializer.data)

@@ -77,9 +77,22 @@ class EstadodeconsultaSerializer(serializers.ModelSerializer):
 # --------- Crear / Detalle / Actualizar Consulta ---------
 
 class CreateConsultaSerializer(serializers.ModelSerializer):
+    # Permitir enviar IDs en lugar de objetos completos
+    codpaciente = serializers.PrimaryKeyRelatedField(queryset=Paciente.objects.all())
+    cododontologo = serializers.PrimaryKeyRelatedField(queryset=Odontologo.objects.all())
+    idhorario = serializers.PrimaryKeyRelatedField(queryset=Horario.objects.all())
+    idtipoconsulta = serializers.PrimaryKeyRelatedField(queryset=Tipodeconsulta.objects.all())
+    idestadoconsulta = serializers.PrimaryKeyRelatedField(queryset=Estadodeconsulta.objects.all())
+    codrecepcionista = serializers.PrimaryKeyRelatedField(
+        queryset=Recepcionista.objects.all(), 
+        required=False, 
+        allow_null=True
+    )
+    
     class Meta:
         model = Consulta
         fields = (
+            "id",  # ✅ AGREGADO: Devolver ID de la consulta creada
             "fecha",
             "codpaciente",
             "cododontologo",
@@ -89,22 +102,22 @@ class CreateConsultaSerializer(serializers.ModelSerializer):
             "codrecepcionista",
         )
 
-
     def validate(self, data):
         """
         Validar que no exista ya una consulta para el mismo odontólogo,
         en la misma fecha y horario.
         """
-        if Consulta.objects.filter(
+        consulta_existente = Consulta.objects.filter(
             cododontologo=data['cododontologo'],
             fecha=data['fecha'],
             idhorario=data['idhorario']
-            # Opcional: Excluir citas canceladas si se permite re-agendar sobre ellas
-            # ).exclude(idestadoconsulta__in=[3, 4]
-        ).exists():
+        )
+        
+        if consulta_existente.exists():
             raise serializers.ValidationError(
                 "Este horario ya está reservado con el odontólogo seleccionado."
             )
+        
         return data
 
 
@@ -180,6 +193,69 @@ class UpdateConsultaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Consulta
         fields = ["idestadoconsulta"]
+
+
+class ConsultaReporteSerializer(serializers.ModelSerializer):
+    """
+    Serializador para reportes y exportación a Excel.
+    Devuelve valores planos en lugar de objetos anidados.
+    """
+    # Paciente
+    paciente_nombre = serializers.CharField(
+        source='codpaciente.codusuario.nombre', 
+        read_only=True
+    )
+    paciente_apellido = serializers.CharField(
+        source='codpaciente.codusuario.apellido', 
+        read_only=True
+    )
+    paciente_rut = serializers.CharField(
+        source='codpaciente.codusuario.rut', 
+        read_only=True
+    )
+    
+    # Odontólogo
+    odontologo_nombre = serializers.CharField(
+        source='cododontologo.codusuario.nombre', 
+        read_only=True
+    )
+    odontologo_apellido = serializers.CharField(
+        source='cododontologo.codusuario.apellido', 
+        read_only=True
+    )
+    
+    # Horario
+    hora_inicio = serializers.CharField(
+        source='idhorario.hora', 
+        read_only=True
+    )
+    
+    # Tipo de consulta
+    tipo_consulta = serializers.CharField(
+        source='idtipoconsulta.nombreconsulta', 
+        read_only=True
+    )
+    
+    # Estado
+    estado = serializers.CharField(
+        source='idestadoconsulta.estado', 
+        read_only=True
+    )
+    
+    class Meta:
+        model = Consulta
+        fields = [
+            'id',  # PK del modelo (no idconsulta)
+            'fecha',
+            'paciente_nombre',
+            'paciente_apellido',
+            'paciente_rut',
+            'odontologo_nombre',
+            'odontologo_apellido',
+            'hora_inicio',
+            'tipo_consulta',
+            'estado',
+        ]
 
 
 # --------- ADMIN: Roles y Usuarios (lista + cambio de rol) ---------
@@ -710,26 +786,26 @@ from .models import Bitacora
 
 class BitacoraSerializer(serializers.ModelSerializer):
     usuario_nombre = serializers.SerializerMethodField()
-    accion_display = serializers.CharField(source='get_accion_display', read_only=True)
-    fecha_hora_formatted = serializers.SerializerMethodField()
+    timestamp_formatted = serializers.SerializerMethodField()
 
     class Meta:
         model = Bitacora
         fields = [
-            'id', 'accion', 'accion_display', 'descripcion',
-            'fecha_hora', 'fecha_hora_formatted', 'usuario', 'usuario_nombre',
-            'ip_address', 'user_agent', 'modelo_afectado', 'objeto_id',
-            'datos_adicionales'
+            'id', 'accion', 'tabla_afectada', 'registro_id',
+            'timestamp', 'timestamp_formatted', 'usuario', 'usuario_nombre',
+            'ip_address', 'user_agent', 'valores_anteriores', 'valores_nuevos'
         ]
-        read_only_fields = ['id', 'fecha_hora']
+        read_only_fields = ['id', 'timestamp']
 
     def get_usuario_nombre(self, obj):
         if obj.usuario:
             return f"{obj.usuario.nombre} {obj.usuario.apellido}"
         return "Usuario anónimo"
 
-    def get_fecha_hora_formatted(self, obj):
-        return obj.fecha_hora.strftime('%d/%m/%Y %H:%M:%S')
+    def get_timestamp_formatted(self, obj):
+        if obj.timestamp:
+            return obj.timestamp.strftime('%d/%m/%Y %H:%M:%S')
+        return None
 
 
 # Función auxiliar para crear registros de bitácora manualmente

@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.http import JsonResponse
+from django.views import View
 from .models import Empresa
 
 
@@ -26,6 +27,17 @@ class EmpresaViewSet(viewsets.ModelViewSet):
             "status": "coming_soon"
         })
 
+class PublicRootView(View):
+    def get(self, request):
+        return JsonResponse({
+            "message": "🏢 Portal de Administración - Dental Clinic SaaS",
+            "description": "Gestión centralizada de clínicas dentales",
+            "endpoints": {
+                "admin": "/admin/",  # Admin público para super-administradores
+                "tenancy": "/api/tenancy/",
+                "register": "/api/tenancy/register/",
+            }
+        })
 
 def health_check(request):
     """Health check para la app tenancy."""

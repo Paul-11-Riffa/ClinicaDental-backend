@@ -1,6 +1,7 @@
 # tenancy/utils.py
 
 from django.contrib import admin
+from django.forms import HiddenInput
 from django.core.exceptions import PermissionDenied
 
 class TenantAwareAdmin(admin.ModelAdmin):
@@ -56,7 +57,7 @@ class TenantAwareAdmin(admin.ModelAdmin):
         
         # Ocultar el campo empresa del formulario ya que se asigna automáticamente
         if 'empresa' in form.base_fields:
-            form.base_fields['empresa'].widget = admin.widgets.HiddenInput()
+            form.base_fields['empresa'].widget = HiddenInput()
             form.base_fields['empresa'].required = False
         
         return form

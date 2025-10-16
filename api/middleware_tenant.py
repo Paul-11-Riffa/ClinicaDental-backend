@@ -1,6 +1,5 @@
 from django.http import HttpResponseForbidden
-from tenancy.models import Empresa
-from users.models import Usuario
+from api.models import Empresa, Usuario
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,9 +29,27 @@ class TenantMiddleware:
         # PRIORIDAD 2: Extraer subdominio del dominio del request
         # Ejemplo: norte.notificct.dpdns.org -> subdomain = "norte"
         # Ejemplo: notificct.dpdns.org -> subdomain = None (dominio público)
+        # Ejemplo: norte.localhost -> subdomain = "norte"
+        # Ejemplo: norte.test -> subdomain = "norte"
         # Ejemplo: localhost -> subdomain = None
         parts = domain.split('.')
-        subdomain_from_domain = parts[0] if len(parts) > 2 else None
+        
+        # Detectar subdominios en diferentes escenarios
+        if len(parts) >= 2:
+            # norte.localhost, norte.test, norte.notificct.dpdns.org
+            # No considerar subdominio si es solo 'localhost', 'test' o el dominio base
+            last_part = parts[-1]
+            if last_part in ['localhost', 'test'] and len(parts) == 2:
+                # norte.localhost o norte.test -> subdomain = "norte"
+                subdomain_from_domain = parts[0] if parts[0] not in ['localhost', 'test'] else None
+            elif len(parts) > 2:
+                # norte.notificct.dpdns.org -> subdomain = "norte"
+                subdomain_from_domain = parts[0]
+            else:
+                # localhost o test solo -> subdomain = None
+                subdomain_from_domain = None
+        else:
+            subdomain_from_domain = None
 
         # Usar header si está disponible, sino usar domain
         subdomain = subdomain_from_header or subdomain_from_domain

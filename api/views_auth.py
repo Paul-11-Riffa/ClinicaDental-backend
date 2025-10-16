@@ -1,6 +1,6 @@
 from typing import Optional
 import logging
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import ensure_csrf_cookie, csrf_exempt
 from django.contrib.auth import get_user_model, authenticate
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_bytes, force_str
@@ -228,6 +228,7 @@ def auth_register(request):
 # ============================
 # Login / Logout / User info
 # ============================
+@csrf_exempt
 @api_view(["POST"])
 @authentication_classes([])  # público
 @permission_classes([AllowAny])  # público
@@ -239,10 +240,17 @@ def auth_login(request):
     Nota: Si existe un BloqueoUsuario ACTIVO y vigente (del tenant actual, si aplica),
     se responde 403 y no se emite token.
     """
+    # Log al recibir petición de login
+    logger.info(f"🔐 Petición de login recibida - IP: {_client_ip(request)}")
+    
     try:
         email = (request.data.get("email") or "").strip().lower()
         password = request.data.get("password")
+        
+        logger.info(f"📧 Intento de login para: {email}")
+        
         if not email or not password:
+            logger.warning(f"❌ Login fallido: email o password vacío")
             return Response({"detail": "Email y contraseña son requeridos"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Cerrar cualquier conexión previa
@@ -252,12 +260,17 @@ def auth_login(request):
         user = authenticate(username=email, password=password)
 
         if not user:
+            logger.warning(f"❌ Credenciales inválidas para: {email}")
             return Response({"detail": "Credenciales inválidas"}, status=status.HTTP_401_UNAUTHORIZED)
         if not user.is_active:
+            logger.warning(f"❌ Cuenta desactivada para: {email}")
             return Response({"detail": "Cuenta desactivada"}, status=status.HTTP_401_UNAUTHORIZED)
+
+        logger.info(f"✅ Usuario Django autenticado: {email}")
 
         # Tenant detectado (si tu middleware lo aporta)
         tenant = getattr(request, 'tenant', None)
+        logger.info(f"🏢 Tenant detectado: {tenant.nombre if tenant else 'None'}")
 
         # Resolver el perfil de dominio y validar pertenencia al tenant ANTES de emitir token
         usuario_query = Usuario.objects.filter(correoelectronico=email)
@@ -266,28 +279,35 @@ def auth_login(request):
         usuario = usuario_query.first()
 
         if not usuario:
+            logger.warning(f"❌ Usuario no encontrado en BD o no pertenece al tenant: {email}")
             return Response(
                 {"detail": "Credenciales inválidas o usuario no pertenece a esta empresa"},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
+        logger.info(f"✅ Usuario encontrado en BD: {usuario.nombre} {usuario.apellido} (código: {usuario.codigo})")
+
         # BLOQUEO: verifica si existe un BloqueoUsuario vigente (activo y sin fecha_fin o con fecha_fin futura)
         bloqueado, mensaje = _esta_bloqueado_usuario_por_email(email=email, tenant=tenant)
         if bloqueado:
+            logger.warning(f"🚫 Usuario bloqueado: {email} - {mensaje}")
             return Response({"detail": mensaje or "Tu cuenta está bloqueada."}, status=status.HTTP_403_FORBIDDEN)
 
         # Obtener o crear token (recién aquí, tras pasar validaciones)
         token, _ = Token.objects.get_or_create(user=user)
+        
+        logger.info(f"🎫 Token generado para: {email}")
 
         # Log de login (tolerante a fallos: jamás rompe el login)
         try:
             Bitacora.objects.create(
                 accion='login',
-                descripcion=f'Login exitoso - {usuario.nombre} {usuario.apellido}',
-                codusuario=usuario.codigo,
+                tabla_afectada='auth_user',
+                usuario=usuario,
+                empresa=tenant,
                 ip_address=_client_ip(request),
                 user_agent=request.META.get('HTTP_USER_AGENT', ''),
-                datos_adicionales={'email': email, 'metodo': 'manual_login_view'}
+                valores_nuevos={'email': email, 'metodo': 'manual_login_view', 'nombre': usuario.nombre, 'apellido': usuario.apellido}
             )
         except Exception as log_error:
             # Importante: NO lanzar excepción aquí
@@ -306,6 +326,8 @@ def auth_login(request):
                 subtipo = "administrador"
         except Exception:
             pass  # Mantener subtipo por defecto
+
+        logger.info(f"✅ Login exitoso para: {email} - Subtipo: {subtipo}")
 
         return Response({
             "ok": True,
@@ -331,9 +353,7 @@ def auth_login(request):
         })
 
     except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Error en login: {str(e)}")
+        logger.error(f"❌ Error crítico en login: {str(e)}", exc_info=True)
         return Response(
             {"detail": "Error del servidor. Intenta nuevamente."},
             status=status.HTTP_503_SERVICE_UNAVAILABLE
