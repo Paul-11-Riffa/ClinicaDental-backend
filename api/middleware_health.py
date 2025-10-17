@@ -16,17 +16,24 @@ class HealthCheckMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # Si es el endpoint de health check o auth público, marcar que no requiere SSL redirect y CSRF
+        # Si es el endpoint de health check, auth público o rutas SaaS públicas
+        # marcar que no requiere SSL redirect y CSRF
         exempt_paths = [
             '/api/health/', 
             '/api/health',
+            '/api/db/',
+            '/api/ping/',
             '/api/auth/login/',
             '/api/auth/register/',
+            '/api/auth/csrf/',
+            '/api/public/',  # ⭐ Todas las rutas públicas (Stripe, registro, etc.)
         ]
         
-        if request.path in exempt_paths:
+        # Verificar si la ruta actual es pública
+        is_exempt = any(request.path.startswith(path) for path in exempt_paths)
+        
+        if is_exempt:
             request._dont_enforce_csrf_checks = True
-            # Desactivar SSL redirect solo para este endpoint
             request._secure_ssl_redirect_exempt = True
 
         response = self.get_response(request)

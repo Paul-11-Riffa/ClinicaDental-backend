@@ -19,34 +19,51 @@ class TenantMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        # Obtener el dominio de la petición
+        # ==========================================
+        # PASO 1: EXCLUIR RUTAS PÚBLICAS PRIMERO
+        # ==========================================
+        # Estas rutas NO requieren tenant y deben pasar sin validación
+        excluded_paths = [
+            '/admin/',
+            '/static/',
+            '/media/',
+            '/api/auth/login/',
+            '/api/auth/register/',
+            '/api/auth/csrf/',
+            '/api/health/',
+            '/api/db/',
+            '/api/auth/logout/',
+            '/api/auth/me/',
+            '/api/ping/',
+            '/api/public/',  # ⭐ CRÍTICO: Rutas públicas de SaaS (registro, Stripe)
+        ]
+        
+        # Si la ruta es pública, saltar toda la lógica de tenant
+        if any(request.path.startswith(path) for path in excluded_paths):
+            logger.debug(f"[TenantMiddleware] Ruta pública detectada: {request.path} - Saltando validación de tenant")
+            request.tenant = None  # Explícitamente sin tenant
+            response = self.get_response(request)
+            return response
+
+        # ==========================================
+        # PASO 2: DETECTAR TENANT POR SUBDOMAIN
+        # ==========================================
         domain = request.get_host().split(':')[0].lower()
 
         # PRIORIDAD 1: Leer header del frontend (desarrollo local)
-        # El frontend envía X-Tenant-Subdomain cuando detecta un subdomain
         subdomain_from_header = request.headers.get('X-Tenant-Subdomain')
 
-        # PRIORIDAD 2: Extraer subdominio del dominio del request
-        # Ejemplo: norte.notificct.dpdns.org -> subdomain = "norte"
-        # Ejemplo: notificct.dpdns.org -> subdomain = None (dominio público)
-        # Ejemplo: norte.localhost -> subdomain = "norte"
-        # Ejemplo: norte.test -> subdomain = "norte"
-        # Ejemplo: localhost -> subdomain = None
+        # PRIORIDAD 2: Extraer subdominio del dominio
         parts = domain.split('.')
         
         # Detectar subdominios en diferentes escenarios
         if len(parts) >= 2:
-            # norte.localhost, norte.test, norte.notificct.dpdns.org
-            # No considerar subdominio si es solo 'localhost', 'test' o el dominio base
             last_part = parts[-1]
             if last_part in ['localhost', 'test'] and len(parts) == 2:
-                # norte.localhost o norte.test -> subdomain = "norte"
                 subdomain_from_domain = parts[0] if parts[0] not in ['localhost', 'test'] else None
             elif len(parts) > 2:
-                # norte.notificct.dpdns.org -> subdomain = "norte"
                 subdomain_from_domain = parts[0]
             else:
-                # localhost o test solo -> subdomain = None
                 subdomain_from_domain = None
         else:
             subdomain_from_domain = None
@@ -56,7 +73,7 @@ class TenantMiddleware:
 
         # Resolver el objeto Empresa desde el subdominio
         tenant_empresa = None
-        if subdomain and subdomain not in ['www', 'api']:  # Ignorar subdominios especiales
+        if subdomain and subdomain not in ['www', 'api']:
             try:
                 tenant_empresa = Empresa.objects.get(
                     subdomain__iexact=subdomain,
@@ -65,85 +82,58 @@ class TenantMiddleware:
                 logger.debug(f"[TenantMiddleware] Tenant resuelto: {tenant_empresa.nombre} (subdomain: {subdomain})")
             except Empresa.DoesNotExist:
                 logger.warning(f"[TenantMiddleware] Subdominio '{subdomain}' no encontrado o inactivo")
-                # No hacer nada, tenant_empresa será None
             except Empresa.MultipleObjectsReturned:
-                logger.error(f"[TenantMiddleware] Múltiples empresas con subdomain '{subdomain}' - ERROR DE CONFIGURACIÓN")
-                # Tomar la primera activa como fallback
+                logger.error(f"[TenantMiddleware] Múltiples empresas con subdomain '{subdomain}'")
                 tenant_empresa = Empresa.objects.filter(
                     subdomain__iexact=subdomain,
                     activo=True
                 ).first()
 
-        # Guardar el objeto Empresa en request.tenant (NO el string)
+        # Guardar el tenant en el request
         request.tenant = tenant_empresa
 
-        # VALIDACIÓN DE SEGURIDAD: Si el usuario está autenticado y hay un tenant,
-        # verificar que el usuario pertenece a esa empresa
+        # ==========================================
+        # PASO 3: VALIDAR PERTENENCIA DE USUARIO
+        # ==========================================
         if request.user.is_authenticated and tenant_empresa:
-            # EXCEPCIÓN: Los superusuarios pueden acceder a cualquier empresa
+            # Superusuarios tienen acceso a todo
             if request.user.is_superuser or request.user.is_staff:
-                logger.debug(f"[TenantMiddleware] Superusuario '{request.user.email}' accede sin restricción de tenant")
+                logger.debug(f"[TenantMiddleware] Superusuario '{request.user.email}' accede sin restricción")
                 response = self.get_response(request)
                 return response
 
-            # Excluir rutas públicas que no necesitan validación de tenant
-            excluded_paths = [
-                '/admin/',
-                '/static/',
-                '/media/',
-                '/api/auth/login',
-                '/api/auth/register',
-                '/api/auth/csrf',
-                '/api/health',
-                '/api/db_health',
-                '/api/auth/logout',
-                '/api/auth/me',
-                '/api/ping',
-                '/api/public/',  # Rutas públicas de SaaS (registro de empresas, Stripe, etc.)
-            ]
+            # Verificar que el usuario pertenece a esta empresa
+            try:
+                usuario = Usuario.objects.filter(
+                    correoelectronico__iexact=request.user.email,
+                    empresa=tenant_empresa
+                ).first()
 
-            # Si la ruta requiere validación de tenant
-            if not any(request.path.startswith(path) for path in excluded_paths):
-                # Verificar si el usuario pertenece a la empresa del tenant
-                try:
-                    # Buscar el usuario en la tabla Usuario (modelo de negocio)
-                    usuario = Usuario.objects.filter(
-                        correoelectronico__iexact=request.user.email,
-                        empresa=tenant_empresa  # Comparar objeto con objeto
-                    ).first()
+                if not usuario:
+                    logger.warning(
+                        f"[TenantMiddleware] Acceso denegado: '{request.user.email}' "
+                        f"no pertenece a '{tenant_empresa.nombre}'. Path: {request.path}"
+                    )
 
-                    if not usuario:
-                        # Log detallado para debugging
+                    usuario_otra_empresa = Usuario.objects.filter(
+                        correoelectronico__iexact=request.user.email
+                    ).select_related('empresa').first()
+
+                    if usuario_otra_empresa:
                         logger.warning(
-                            f"[TenantMiddleware] Acceso denegado: usuario '{request.user.email}' "
-                            f"intentó acceder a empresa '{tenant_empresa.nombre}' (ID: {tenant_empresa.id}) "
-                            f"sin pertenecer a ella. Path: {request.path}"
+                            f"[TenantMiddleware] Usuario pertenece a '{usuario_otra_empresa.empresa.nombre}' "
+                            f"(subdomain: {usuario_otra_empresa.empresa.subdomain})"
                         )
 
-                        # Verificar si el usuario existe en otra empresa
-                        usuario_otra_empresa = Usuario.objects.filter(
-                            correoelectronico__iexact=request.user.email
-                        ).select_related('empresa').first()
-
-                        if usuario_otra_empresa:
-                            logger.warning(
-                                f"[TenantMiddleware] El usuario '{request.user.email}' pertenece a "
-                                f"'{usuario_otra_empresa.empresa.nombre}' (subdomain: {usuario_otra_empresa.empresa.subdomain})"
-                            )
-                        else:
-                            logger.error(
-                                f"[TenantMiddleware] El usuario '{request.user.email}' NO existe en la tabla Usuario"
-                            )
-
-                        return HttpResponseForbidden(
-                            "Acceso denegado: No tienes permisos para acceder a esta empresa. "
-                            f"Por favor accede a través del subdominio correcto."
-                        )
-                except Exception as e:
-                    logger.error(f"[TenantMiddleware] Error verificando pertenencia a empresa: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    return HttpResponseForbidden("Error de validación de acceso")
+                    return HttpResponseForbidden(
+                        "Acceso denegado: No tienes permisos para esta empresa. "
+                        "Accede a través del subdominio correcto."
+                    )
+            except Exception as e:
+                logger.error(f"[TenantMiddleware] Error verificando pertenencia: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return HttpResponseForbidden("Error de validación de acceso")
 
         response = self.get_response(request)
         return response

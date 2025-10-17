@@ -124,9 +124,21 @@ def registrar_empresa_con_pago(request):
         "payment_method_id": "pm_xxx"
     }
     """
+    # 🔍 DEBUG: Ver qué datos llegan
+    import json
+    print("="*60)
+    print("🔍 DEBUG - Datos recibidos en registrar-empresa-pago:")
+    print(json.dumps(request.data, indent=2, default=str))
+    print("="*60)
+    
     serializer = RegistroEmpresaSerializer(data=request.data)
 
     if not serializer.is_valid():
+        # 🔍 DEBUG: Ver errores de validación
+        print("❌ Errores de validación del serializer:")
+        print(json.dumps(serializer.errors, indent=2, default=str))
+        print("="*60)
+        
         return Response({
             "ok": False,
             "errors": serializer.errors
