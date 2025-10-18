@@ -1,0 +1,22 @@
+﻿{
+    "Changes": [
+        {
+            "Action": "UPSERT",
+            "ResourceRecordSet": {
+                "Name": "notificct.dpdns.org",
+                "Type": "A",
+                "TTL": 300,
+                "ResourceRecords": [{"Value": "18.222.133.184"}]
+            }
+        },
+        {
+            "Action": "UPSERT",
+            "ResourceRecordSet": {
+                "Name": "*.notificct.dpdns.org",
+                "Type": "A",
+                "TTL": 300,
+                "ResourceRecords": [{"Value": "18.222.133.184"}]
+            }
+        }
+    ]
+}

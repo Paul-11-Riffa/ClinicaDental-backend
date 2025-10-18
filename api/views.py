@@ -425,17 +425,22 @@ Si necesitas cancelar o reprogramar tu cita, ponte en contacto con nosotros.
 
             from api.middleware import get_client_ip
             Bitacora.objects.create(
-                accion='cancelar_cita',
-                descripcion=f'Cita cancelada: {consulta_info}',
+                accion='CANCELAR_CITA',
                 usuario=usuario,
                 ip_address=get_client_ip(request),
-                user_agent=request.META.get('HTTP_USER_AGENT', ''),
-                modelo_afectado='Consulta',
-                objeto_id=consulta_id,
-                datos_adicionales={
+                user_agent=request.META.get('HTTP_USER_AGENT', 'Unknown'),
+                tabla_afectada='consulta',
+                registro_id=consulta_id,
+                empresa=getattr(request, 'tenant', None),
+                valores_anteriores={
+                    'estado': consulta.idestadoconsulta.estado if consulta.idestadoconsulta else 'N/A',
                     'fecha': str(consulta.fecha),
                     'horario': consulta.idhorario.hora if consulta.idhorario else 'N/A',
                     'odontologo': f"{consulta.cododontologo.codusuario.nombre} {consulta.cododontologo.codusuario.apellido}" if consulta.cododontologo else 'N/A'
+                },
+                valores_nuevos={
+                    'estado': 'Cancelada',
+                    'info': consulta_info
                 }
             )
         except Exception as log_error:
@@ -490,13 +495,13 @@ Si necesitas cancelar o reprogramar tu cita, ponte en contacto con nosotros.
 
             from api.middleware import get_client_ip
             Bitacora.objects.create(
-                accion='limpiar_citas_vencidas',
-                descripcion=f'Eliminadas {cantidad} citas vencidas',
+                accion='LIMPIAR_CITAS_VENCIDAS',
                 usuario=usuario,
                 ip_address=get_client_ip(request),
-                user_agent=request.META.get('HTTP_USER_AGENT', ''),
-                modelo_afectado='Consulta',
-                datos_adicionales={
+                user_agent=request.META.get('HTTP_USER_AGENT', 'Unknown'),
+                tabla_afectada='consulta',
+                empresa=getattr(request, 'tenant', None),
+                valores_nuevos={
                     'cantidad_eliminadas': cantidad,
                     'fecha_limpieza': str(date.today())
                 }

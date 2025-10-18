@@ -7,3 +7,5 @@ class ApiConfig(AppConfig):
     def ready(self):
         # importa y registra los signals del módulo notifications_mobile
         import api.notifications_mobile.signals_consulta  # noqa: F401
+        # importa y registra los signals de gestión de roles de usuario
+        import api.signals_usuario  # noqa: F401

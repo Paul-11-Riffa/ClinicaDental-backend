@@ -809,19 +809,34 @@ class BitacoraSerializer(serializers.ModelSerializer):
 
 
 # Función auxiliar para crear registros de bitácora manualmente
-def crear_registro_bitacora(accion, usuario=None, ip_address='127.0.0.1', descripcion='',
-                            modelo_afectado=None, objeto_id=None, datos_adicionales=None):
+def crear_registro_bitacora(accion, usuario=None, ip_address='127.0.0.1', 
+                            tabla_afectada=None, registro_id=None, 
+                            valores_nuevos=None, valores_anteriores=None,
+                            empresa=None, user_agent='Unknown'):
     """
-    Función auxiliar para crear registros de bitácora desde las vistas
+    Función auxiliar para crear registros de bitácora desde las vistas.
+    
+    Args:
+        accion: Descripción de la acción realizada
+        usuario: Usuario que realizó la acción
+        ip_address: IP del cliente
+        tabla_afectada: Nombre de la tabla/modelo afectado
+        registro_id: ID del registro afectado
+        valores_nuevos: Dict con los valores nuevos (para creaciones/ediciones)
+        valores_anteriores: Dict con los valores anteriores (para ediciones/eliminaciones)
+        empresa: Empresa/tenant relacionada
+        user_agent: User-Agent del cliente
     """
     return Bitacora.objects.create(
         accion=accion,
-        descripcion=descripcion,
         usuario=usuario,
         ip_address=ip_address,
-        modelo_afectado=modelo_afectado,
-        objeto_id=objeto_id,
-        datos_adicionales=datos_adicionales or {}
+        user_agent=user_agent,
+        tabla_afectada=tabla_afectada,
+        registro_id=registro_id,
+        valores_nuevos=valores_nuevos or {},
+        valores_anteriores=valores_anteriores,
+        empresa=empresa
     )
 
 

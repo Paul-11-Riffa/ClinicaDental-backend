@@ -2,7 +2,7 @@ from django.urls import path, include
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.routers import DefaultRouter
 
-from . import views, views_auth, views_saas, views_stripe
+from . import views, views_auth, views_saas, views_stripe, views_user_creation
 from .views import UserProfileView, ping
 from no_show_policies.views import PoliticaNoShowViewSet  # App externa
 
@@ -28,6 +28,9 @@ router.register(r"historias-clinicas", views.HistorialclinicoViewSet, basename="
 
 # Consentimiento Digital
 router.register(r"consentimientos", views.ConsentimientoViewSet, basename="consentimientos")
+
+# Creación de Usuarios (Admin)
+router.register(r"crear-usuario", views_user_creation.CrearUsuarioViewSet, basename="crear-usuario")
 
 urlpatterns = [
     # Health/basic
