@@ -29,6 +29,11 @@ router.register(r"historias-clinicas", views.HistorialclinicoViewSet, basename="
 # Consentimiento Digital
 router.register(r"consentimientos", views.ConsentimientoViewSet, basename="consentimientos")
 
+# Presupuestos y Aceptaciones (SP3-T003)
+from .views_presupuestos import PresupuestoViewSet, AceptacionPresupuestoViewSet
+router.register(r"presupuestos", PresupuestoViewSet, basename="presupuestos")
+router.register(r"aceptaciones", AceptacionPresupuestoViewSet, basename="aceptaciones")
+
 # Creación de Usuarios (Admin)
 router.register(r"crear-usuario", views_user_creation.CrearUsuarioViewSet, basename="crear-usuario")
 

@@ -217,6 +217,37 @@ class Imtemreceta(models.Model):
 
 
 class Plandetratamiento(models.Model):
+    """
+    Plan de tratamiento / Presupuesto dental.
+    
+    Un plan de tratamiento es un presupuesto que un odontólogo genera para un paciente,
+    especificando los servicios/tratamientos a realizar y sus costos.
+    """
+    # Estados de aceptación
+    ESTADO_PENDIENTE = 'Pendiente'
+    ESTADO_ACEPTADO = 'Aceptado'
+    ESTADO_RECHAZADO = 'Rechazado'
+    ESTADO_CADUCADO = 'Caducado'
+    ESTADO_PARCIAL = 'Parcial'  # Solo algunos items aceptados
+    
+    ESTADOS_ACEPTACION = [
+        (ESTADO_PENDIENTE, 'Pendiente'),
+        (ESTADO_ACEPTADO, 'Aceptado'),
+        (ESTADO_RECHAZADO, 'Rechazado'),
+        (ESTADO_CADUCADO, 'Caducado'),
+        (ESTADO_PARCIAL, 'Aceptación Parcial'),
+    ]
+    
+    # Tipos de aceptación
+    TIPO_TOTAL = 'Total'
+    TIPO_PARCIAL = 'Parcial'
+    
+    TIPOS_ACEPTACION = [
+        (TIPO_TOTAL, 'Aceptación Total'),
+        (TIPO_PARCIAL, 'Aceptación Parcial'),
+    ]
+    
+    # Campos originales
     codpaciente = models.ForeignKey(Paciente, models.DO_NOTHING, db_column='codpaciente')
     cododontologo = models.ForeignKey(Odontologo, models.DO_NOTHING, db_column='cododontologo')
     idestado = models.ForeignKey('Estado', models.DO_NOTHING, db_column='idestado')
@@ -224,9 +255,196 @@ class Plandetratamiento(models.Model):
     descuento = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     montototal = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='planesTratamientos', null=True, blank=True)
-
+    
+    # Nuevos campos para aceptación de presupuestos (SP3-T003)
+    fecha_vigencia = models.DateField(
+        null=True, 
+        blank=True,
+        help_text="Fecha hasta la cual el presupuesto es válido. Después de esta fecha, caduca automáticamente."
+    )
+    fecha_aceptacion = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="Fecha y hora en que el paciente aceptó el presupuesto."
+    )
+    usuario_acepta = models.ForeignKey(
+        Usuario,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='presupuestos_aceptados',
+        help_text="Usuario (paciente) que aceptó el presupuesto."
+    )
+    estado_aceptacion = models.CharField(
+        max_length=20,
+        choices=ESTADOS_ACEPTACION,
+        default=ESTADO_PENDIENTE,
+        help_text="Estado de aceptación del presupuesto por parte del paciente."
+    )
+    aceptacion_tipo = models.CharField(
+        max_length=20,
+        choices=TIPOS_ACEPTACION,
+        null=True,
+        blank=True,
+        help_text="Tipo de aceptación: Total (todos los ítems) o Parcial (solo algunos ítems)."
+    )
+    es_editable = models.BooleanField(
+        default=True,
+        help_text="Indica si el presupuesto puede ser editado. Se bloquea al ser aceptado."
+    )
+    firma_digital = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Firma digital del paciente en formato JSON. Incluye timestamp, IP, user agent, etc."
+    )
+    
     class Meta:
         db_table = 'plandetratamiento'
+        verbose_name = 'Plan de Tratamiento'
+        verbose_name_plural = 'Planes de Tratamiento'
+        ordering = ['-fechaplan']
+    
+    def __str__(self):
+        return f"Presupuesto #{self.id} - {self.codpaciente.codusuario.nombre} ({self.estado_aceptacion})"
+    
+    def esta_vigente(self):
+        """Verifica si el presupuesto está dentro de su fecha de vigencia."""
+        if not self.fecha_vigencia:
+            return True  # Sin fecha de vigencia = siempre vigente
+        return timezone.now().date() <= self.fecha_vigencia
+    
+    def esta_caducado(self):
+        """Verifica si el presupuesto ha caducado."""
+        return not self.esta_vigente()
+    
+    def puede_ser_aceptado(self):
+        """
+        Verifica si el presupuesto puede ser aceptado por el paciente.
+        Criterios: debe estar vigente y no haber sido aceptado previamente.
+        """
+        return (
+            self.esta_vigente() and 
+            self.estado_aceptacion not in [self.ESTADO_ACEPTADO, self.ESTADO_RECHAZADO]
+        )
+    
+    def marcar_como_caducado(self):
+        """Marca el presupuesto como caducado."""
+        self.estado_aceptacion = self.ESTADO_CADUCADO
+        self.es_editable = False
+        self.save(update_fields=['estado_aceptacion', 'es_editable'])
+
+
+class AceptacionPresupuesto(models.Model):
+    """
+    Registro de auditoría para cada aceptación de presupuesto por parte del paciente.
+    
+    Este modelo mantiene un historial inmutable de todas las aceptaciones,
+    incluyendo firma digital, comprobante, y metadata para trazabilidad.
+    """
+    # Tipos de aceptación
+    TIPO_TOTAL = 'Total'
+    TIPO_PARCIAL = 'Parcial'
+    
+    TIPOS_ACEPTACION = [
+        (TIPO_TOTAL, 'Aceptación Total'),
+        (TIPO_PARCIAL, 'Aceptación Parcial'),
+    ]
+    
+    # Relaciones
+    plandetratamiento = models.ForeignKey(
+        Plandetratamiento,
+        on_delete=models.CASCADE,
+        related_name='aceptaciones',
+        help_text="Presupuesto/Plan de tratamiento aceptado."
+    )
+    usuario_paciente = models.ForeignKey(
+        Usuario,
+        on_delete=models.CASCADE,
+        related_name='aceptaciones_realizadas',
+        help_text="Usuario (paciente) que realizó la aceptación."
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='aceptaciones_presupuestos',
+        null=True,
+        blank=True
+    )
+    
+    # Datos de aceptación
+    fecha_aceptacion = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Timestamp exacto de la aceptación."
+    )
+    tipo_aceptacion = models.CharField(
+        max_length=20,
+        choices=TIPOS_ACEPTACION,
+        help_text="Tipo de aceptación: Total o Parcial."
+    )
+    items_aceptados = models.JSONField(
+        default=list,
+        help_text="Lista de IDs de items (Itemplandetratamiento) aceptados. Vacío si aceptación total."
+    )
+    
+    # Firma digital y metadata
+    firma_digital = models.JSONField(
+        help_text="Firma digital en formato JSON: {timestamp, user_id, hash, etc.}"
+    )
+    ip_address = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        help_text="Dirección IP desde donde se realizó la aceptación."
+    )
+    user_agent = models.TextField(
+        null=True,
+        blank=True,
+        help_text="User Agent del navegador/app del paciente."
+    )
+    
+    # Comprobante
+    comprobante_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        help_text="ID único del comprobante de aceptación. Usado para verificación."
+    )
+    comprobante_url = models.URLField(
+        max_length=500,
+        null=True,
+        blank=True,
+        help_text="URL del PDF del comprobante (si se generó)."
+    )
+    
+    # Metadata adicional
+    monto_total_aceptado = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Monto total del presupuesto al momento de la aceptación."
+    )
+    notas = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Notas o comentarios adicionales del paciente."
+    )
+    
+    class Meta:
+        db_table = 'aceptacionpresupuesto'
+        verbose_name = 'Aceptación de Presupuesto'
+        verbose_name_plural = 'Aceptaciones de Presupuestos'
+        ordering = ['-fecha_aceptacion']
+        indexes = [
+            models.Index(fields=['plandetratamiento', 'fecha_aceptacion']),
+            models.Index(fields=['usuario_paciente', 'fecha_aceptacion']),
+            models.Index(fields=['comprobante_id']),
+        ]
+    
+    def __str__(self):
+        return f"Aceptación {self.comprobante_id} - Presupuesto #{self.plandetratamiento.id} ({self.tipo_aceptacion})"
+    
+    def get_comprobante_verificacion_url(self):
+        """Genera URL para verificar el comprobante."""
+        # TODO: Implementar endpoint de verificación pública
+        return f"/verificar-comprobante/{self.comprobante_id}/"
 
 
 class Itemplandetratamiento(models.Model):
