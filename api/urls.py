@@ -74,6 +74,9 @@ urlpatterns = [
     # Rutas de los ViewSets
     path("", include(router.urls)),
 
+    # Clinic app - Alias para /api/clinic/servicios/
+    path("clinic/", include("clinic.urls")),
+
     # Notificaciones mobile
     path("mobile-notif/", include("api.notifications_mobile.urls")),
 ]
