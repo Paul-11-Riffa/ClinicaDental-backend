@@ -1,10 +1,27 @@
 from django.http import JsonResponse
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
-from rest_framework import viewsets, permissions
+from rest_framework import viewsets, permissions, filters, status
 from rest_framework.authentication import TokenAuthentication, SessionAuthentication
-from .models import Paciente, Consulta, Odontologo, Servicio
-from .serializers import PacienteSerializer, ConsultaSerializer, OdontologoSerializer, ServicioSerializer
+from rest_framework.pagination import PageNumberPagination
+from django_filters.rest_framework import DjangoFilterBackend
+from api.models import Paciente, Consulta, Odontologo, Servicio
+from .serializers import (
+    PacienteSerializer, 
+    ConsultaSerializer, 
+    OdontologoSerializer, 
+    ServicioSerializer,
+    ServicioListSerializer
+)
+from .filters import ServicioFilter
+
+
+class StandardResultsSetPagination(PageNumberPagination):
+    """Paginación estándar para listados"""
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
@@ -76,16 +93,47 @@ class OdontologoViewSet(viewsets.ModelViewSet):
             raise PermissionError("Tenant requerido para crear odontólogo")
 
 class ServicioViewSet(viewsets.ModelViewSet):
-    """ViewSet para gestión de servicios - REQUIERE AUTENTICACIÓN"""
-    serializer_class = ServicioSerializer
+    """
+    ViewSet para gestión del catálogo de servicios - REQUIERE AUTENTICACIÓN
+    
+    Funcionalidades:
+    - Búsqueda por texto en nombre y descripción
+    - Filtros por rango de precio y duración
+    - Ordenamiento por nombre, precio o duración
+    - Paginación configurable
+    - Solo muestra servicios activos por defecto
+    - Vista de detalle con precio vigente
+    """
     permission_classes = [permissions.IsAuthenticated]
     authentication_classes = [TokenAuthentication, SessionAuthentication]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = ServicioFilter
+    search_fields = ['nombre', 'descripcion']
+    ordering_fields = ['nombre', 'costobase', 'duracion', 'fecha_creacion']
+    ordering = ['nombre']  # Ordenamiento por defecto
 
     def get_queryset(self):
-        """Filtrar servicios por tenant"""
+        """
+        Filtrar servicios por tenant y mostrar solo activos por defecto.
+        Se puede incluir inactivos con el parámetro ?activo=false o sin filtro
+        """
         if hasattr(self.request, 'tenant') and self.request.tenant:
-            return Servicio.objects.filter(empresa=self.request.tenant)
+            queryset = Servicio.objects.filter(empresa=self.request.tenant)
+            
+            # Por defecto solo mostrar servicios activos
+            # Se puede override con parámetro explícito
+            if 'activo' not in self.request.query_params:
+                queryset = queryset.filter(activo=True)
+            
+            return queryset
         return Servicio.objects.none()
+
+    def get_serializer_class(self):
+        """Usar serializer diferente para list vs retrieve/create/update"""
+        if self.action == 'list':
+            return ServicioListSerializer
+        return ServicioSerializer
 
     def perform_create(self, serializer):
         """Crear servicio asociado al tenant"""
@@ -93,3 +141,13 @@ class ServicioViewSet(viewsets.ModelViewSet):
             serializer.save(empresa=self.request.tenant)
         else:
             raise PermissionError("Tenant requerido para crear servicio")
+    
+    @action(detail=True, methods=['get'])
+    def detalle_completo(self, request, pk=None):
+        """
+        Endpoint adicional para obtener detalle completo del servicio
+        con información extendida incluyendo precio vigente
+        """
+        servicio = self.get_object()
+        serializer = ServicioSerializer(servicio)
+        return Response(serializer.data)

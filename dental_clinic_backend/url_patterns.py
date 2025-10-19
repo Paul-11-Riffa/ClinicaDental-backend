@@ -6,10 +6,12 @@ from .admin_sites import tenant_admin_site, public_admin_site
 urlpatterns_public = [
     path('admin/', public_admin_site.urls),
     path('api/', include('api.urls')),  # Todas las rutas públicas y de tenants
+    path('clinic/', include('clinic.urls')),  # Módulo de clínica dental
 ]
 
 # URLs para los subdominios (norte.localhost:8000)
 urlpatterns_tenant = [
     path('admin/', tenant_admin_site.urls),
     path('api/', include('api.urls')),  # Todas las rutas del API incluyendo auth
+    path('clinic/', include('clinic.urls')),  # Módulo de clínica dental
 ]
