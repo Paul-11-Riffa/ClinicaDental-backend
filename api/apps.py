@@ -9,3 +9,5 @@ class ApiConfig(AppConfig):
         import api.notifications_mobile.signals_consulta  # noqa: F401
         # importa y registra los signals de gestión de roles de usuario
         import api.signals_usuario  # noqa: F401
+        # importa y registra los signals de aceptación de presupuestos
+        import api.signals_presupuestos  # noqa: F401

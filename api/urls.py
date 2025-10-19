@@ -29,6 +29,11 @@ router.register(r"historias-clinicas", views.HistorialclinicoViewSet, basename="
 # Consentimiento Digital
 router.register(r"consentimientos", views.ConsentimientoViewSet, basename="consentimientos")
 
+# Presupuestos y Aceptaciones (SP3-T003)
+from .views_presupuestos import PresupuestoViewSet, AceptacionPresupuestoViewSet
+router.register(r"presupuestos", PresupuestoViewSet, basename="presupuestos")
+router.register(r"aceptaciones", AceptacionPresupuestoViewSet, basename="aceptaciones")
+
 # Creación de Usuarios (Admin)
 router.register(r"crear-usuario", views_user_creation.CrearUsuarioViewSet, basename="crear-usuario")
 
@@ -73,6 +78,9 @@ urlpatterns = [
 
     # Rutas de los ViewSets
     path("", include(router.urls)),
+
+    # Clinic app - Alias para /api/clinic/servicios/
+    path("clinic/", include("clinic.urls")),
 
     # Notificaciones mobile
     path("mobile-notif/", include("api.notifications_mobile.urls")),
