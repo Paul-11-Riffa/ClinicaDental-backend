@@ -304,12 +304,13 @@ class ServicioCatalogoAPITest(APITestCase):
         self.assertNotIn('Limpieza Dental', nombres)
     
     def test_sin_autenticacion(self):
-        """Verificar que se requiere autenticación"""
+        """Verificar que NO se requiere autenticación para consultas (acceso público)"""
         self.client.credentials()  # Remover credenciales
         url = '/clinic/servicios/'
         response = self.client.get(url)
         
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        # Ahora debe permitir acceso sin autenticación para GET
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
     
     def test_aislamiento_tenant(self):
         """Verificar que solo se ven servicios del tenant actual"""
@@ -333,3 +334,42 @@ class ServicioCatalogoAPITest(APITestCase):
         # Solo debe ver los servicios de su empresa (norte)
         for item in response.data['results']:
             self.assertNotEqual(item['nombre'], "Servicio de Otra Clínica")
+    
+    def test_crear_sin_autenticacion_falla(self):
+        """Verificar que NO se puede crear un servicio sin autenticación"""
+        self.client.credentials()  # Remover credenciales
+        url = '/clinic/servicios/'
+        data = {
+            'nombre': 'Servicio sin Auth',
+            'descripcion': 'Este intento debe fallar',
+            'costobase': '100.00',
+            'duracion': 30,
+            'activo': True
+        }
+        response = self.client.post(url, data, format='json')
+        
+        # Debe rechazar la creación por falta de autenticación
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+    
+    def test_acceso_publico_listado(self):
+        """Verificar que pacientes sin autenticación pueden ver el listado"""
+        self.client.credentials()  # Remover credenciales
+        self.client.defaults['HTTP_X_TENANT_SUBDOMAIN'] = 'norte'
+        
+        url = '/clinic/servicios/'
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(response.data['count'], 3)  # Debe ver los servicios activos
+    
+    def test_acceso_publico_detalle(self):
+        """Verificar que pacientes sin autenticación pueden ver el detalle"""
+        self.client.credentials()  # Remover credenciales
+        self.client.defaults['HTTP_X_TENANT_SUBDOMAIN'] = 'norte'
+        
+        url = f'/clinic/servicios/{self.servicio1.id}/'
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['nombre'], "Limpieza Dental")
+        self.assertIn('precio_vigente', response.data)

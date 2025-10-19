@@ -94,7 +94,10 @@ class OdontologoViewSet(viewsets.ModelViewSet):
 
 class ServicioViewSet(viewsets.ModelViewSet):
     """
-    ViewSet para gestión del catálogo de servicios - REQUIERE AUTENTICACIÓN
+    ViewSet para catálogo de servicios - ACCESO PÚBLICO PARA CONSULTA
+    
+    Permite a pacientes y visitantes consultar el catálogo de servicios sin autenticación.
+    Las operaciones de creación, actualización y eliminación requieren autenticación.
     
     Funcionalidades:
     - Búsqueda por texto en nombre y descripción
@@ -103,8 +106,9 @@ class ServicioViewSet(viewsets.ModelViewSet):
     - Paginación configurable
     - Solo muestra servicios activos por defecto
     - Vista de detalle con precio vigente
+    - Acceso público para lectura (GET)
+    - Autenticación requerida para escritura (POST, PUT, PATCH, DELETE)
     """
-    permission_classes = [permissions.IsAuthenticated]
     authentication_classes = [TokenAuthentication, SessionAuthentication]
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -112,6 +116,18 @@ class ServicioViewSet(viewsets.ModelViewSet):
     search_fields = ['nombre', 'descripcion']
     ordering_fields = ['nombre', 'costobase', 'duracion', 'fecha_creacion']
     ordering = ['nombre']  # Ordenamiento por defecto
+
+    def get_permissions(self):
+        """
+        Permisos diferenciados por acción:
+        - Lectura (list, retrieve, detalle_completo): Acceso público
+        - Escritura (create, update, partial_update, destroy): Requiere autenticación
+        """
+        if self.action in ['list', 'retrieve', 'detalle_completo']:
+            permission_classes = [permissions.AllowAny]
+        else:
+            permission_classes = [permissions.IsAuthenticated]
+        return [permission() for permission in permission_classes]
 
     def get_queryset(self):
         """
@@ -146,7 +162,8 @@ class ServicioViewSet(viewsets.ModelViewSet):
     def detalle_completo(self, request, pk=None):
         """
         Endpoint adicional para obtener detalle completo del servicio
-        con información extendida incluyendo precio vigente
+        con información extendida incluyendo precio vigente.
+        ACCESO PÚBLICO - No requiere autenticación.
         """
         servicio = self.get_object()
         serializer = ServicioSerializer(servicio)
