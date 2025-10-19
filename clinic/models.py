@@ -107,10 +107,26 @@ class Servicio(models.Model):
     nombre = models.CharField(max_length=255)
     descripcion = models.TextField(blank=True, null=True)
     costobase = models.DecimalField(max_digits=10, decimal_places=2)
+    duracion = models.IntegerField(
+        default=30,
+        help_text="Duración estimada del servicio en minutos"
+    )
+    activo = models.BooleanField(
+        default=True,
+        help_text="Indica si el servicio está disponible para ser consultado"
+    )
+    fecha_creacion = models.DateTimeField(auto_now_add=True, null=True)
+    fecha_modificacion = models.DateTimeField(auto_now=True, null=True)
     empresa = models.ForeignKey('tenancy.Empresa', on_delete=models.CASCADE, related_name='servicios', null=True, blank=True)
 
     class Meta:
         db_table = 'servicio'
+        ordering = ['nombre']
+        verbose_name = 'Servicio'
+        verbose_name_plural = 'Servicios'
+
+    def __str__(self):
+        return f"{self.nombre} - ${self.costobase}"
 
 
 class Insumo(models.Model):
