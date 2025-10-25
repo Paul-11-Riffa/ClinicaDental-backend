@@ -5,13 +5,14 @@ from rest_framework import viewsets, permissions, filters, status
 from rest_framework.authentication import TokenAuthentication, SessionAuthentication
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
-from api.models import Paciente, Consulta, Odontologo, Servicio
+from api.models import Paciente, Consulta, Odontologo, Servicio, Piezadental
 from .serializers import (
     PacienteSerializer, 
     ConsultaSerializer, 
     OdontologoSerializer, 
     ServicioSerializer,
-    ServicioListSerializer
+    ServicioListSerializer,
+    PiezadentalSerializer
 )
 from .filters import ServicioFilter
 
@@ -168,3 +169,20 @@ class ServicioViewSet(viewsets.ModelViewSet):
         servicio = self.get_object()
         serializer = ServicioSerializer(servicio)
         return Response(serializer.data)
+
+
+class PiezadentalViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet para consultar catálogo de piezas dentales.
+    Solo lectura (GET) - No permite crear/editar/eliminar desde este endpoint.
+    """
+    serializer_class = PiezadentalSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [TokenAuthentication, SessionAuthentication]
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        """Filtrar piezas dentales por tenant"""
+        if hasattr(self.request, 'tenant') and self.request.tenant:
+            return Piezadental.objects.filter(empresa=self.request.tenant).order_by('nombrepieza')
+        return Piezadental.objects.none()

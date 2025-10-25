@@ -968,3 +968,34 @@ class DocumentoClinicoUploadSerializer(serializers.Serializer):
                 )
 
         return attrs
+
+
+# --------- Odontólogo (completo) ---------
+
+class OdontologoSerializer(serializers.ModelSerializer):
+    """Serializer completo para Odontologo - Para listados y selects"""
+    nombre_completo = serializers.SerializerMethodField()
+    nombre = serializers.CharField(source='codusuario.nombre', read_only=True)
+    apellido = serializers.CharField(source='codusuario.apellido', read_only=True)
+    correo = serializers.EmailField(source='codusuario.correoelectronico', read_only=True)
+    
+    class Meta:
+        model = Odontologo
+        fields = [
+            'codusuario',
+            'nombre',
+            'apellido',
+            'nombre_completo',
+            'correo',
+            'especialidad',
+            'nromatricula',
+            'experienciaprofesional',
+            'empresa'
+        ]
+        read_only_fields = ['empresa']
+    
+    def get_nombre_completo(self, obj):
+        """Devuelve nombre completo del odontólogo"""
+        if obj.codusuario:
+            return f"Dr. {obj.codusuario.nombre} {obj.codusuario.apellido}"
+        return "Sin nombre"

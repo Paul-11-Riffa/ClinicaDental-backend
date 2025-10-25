@@ -1,9 +1,10 @@
-from django.http import JsonResponse
+﻿from django.http import JsonResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import viewsets, permissions
 from rest_framework.authentication import TokenAuthentication, SessionAuthentication
-from .models import Usuario, Tipodeusuario
+from api.models import Usuario, Tipodeusuario, Odontologo
+from api.serializers import OdontologoSerializer
 from .serializers import UsuarioSerializer, TipodeusuarioSerializer
 
 @api_view(['GET'])
@@ -55,3 +56,20 @@ class TipodeusuarioViewSet(viewsets.ModelViewSet):
             serializer.save(empresa=self.request.tenant)
         else:
             raise PermissionError("Tenant requerido para crear tipo de usuario")
+
+
+class OdontologoViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet para consultar odontólogos.
+    Solo lectura (GET) para uso en selects del frontend.
+    Acceso permitido sin autenticación (solo lectura, filtrado por tenant).
+    """
+    serializer_class = OdontologoSerializer
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = [TokenAuthentication, SessionAuthentication]
+
+    def get_queryset(self):
+        """Filtrar odontólogos por tenant"""
+        if hasattr(self.request, 'tenant') and self.request.tenant:
+            return Odontologo.objects.filter(empresa=self.request.tenant).select_related('codusuario')
+        return Odontologo.objects.none()
