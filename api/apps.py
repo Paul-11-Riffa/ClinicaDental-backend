@@ -11,3 +11,5 @@ class ApiConfig(AppConfig):
         import api.signals_usuario  # noqa: F401
         # importa y registra los signals de aceptación de presupuestos
         import api.signals_presupuestos  # noqa: F401
+        # importa y registra los signals de gestión de planes de tratamiento (SP3-T001)
+        import api.signals_plan_tratamiento  # noqa: F401

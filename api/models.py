@@ -223,7 +223,18 @@ class Plandetratamiento(models.Model):
     Un plan de tratamiento es un presupuesto que un odontólogo genera para un paciente,
     especificando los servicios/tratamientos a realizar y sus costos.
     """
-    # Estados de aceptación
+    # Estados del plan (SP3-T001: Workflow borrador -> aprobado)
+    ESTADO_PLAN_BORRADOR = 'Borrador'
+    ESTADO_PLAN_APROBADO = 'Aprobado'
+    ESTADO_PLAN_CANCELADO = 'Cancelado'
+    
+    ESTADOS_PLAN = [
+        (ESTADO_PLAN_BORRADOR, 'Borrador (Editable)'),
+        (ESTADO_PLAN_APROBADO, 'Aprobado (Inmutable)'),
+        (ESTADO_PLAN_CANCELADO, 'Cancelado'),
+    ]
+    
+    # Estados de aceptación (SP3-T003: Aceptación por paciente)
     ESTADO_PENDIENTE = 'Pendiente'
     ESTADO_ACEPTADO = 'Aceptado'
     ESTADO_RECHAZADO = 'Rechazado'
@@ -256,7 +267,43 @@ class Plandetratamiento(models.Model):
     montototal = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='planesTratamientos', null=True, blank=True)
     
-    # Nuevos campos para aceptación de presupuestos (SP3-T003)
+    # SP3-T001: Campos para gestión de plan de tratamiento
+    estado_plan = models.CharField(
+        max_length=20,
+        choices=ESTADOS_PLAN,
+        default=ESTADO_PLAN_BORRADOR,
+        help_text="Estado del plan: Borrador (editable) o Aprobado (inmutable)."
+    )
+    fecha_aprobacion = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Fecha y hora en que el plan fue aprobado por el odontólogo."
+    )
+    usuario_aprueba = models.ForeignKey(
+        Usuario,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='planes_aprobados',
+        help_text="Usuario (odontólogo) que aprobó el plan."
+    )
+    version = models.PositiveIntegerField(
+        default=1,
+        help_text="Versión del plan. Se incrementa con cada aprobación de cambios mayores."
+    )
+    notas_plan = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Notas generales del plan de tratamiento (diagnóstico, observaciones, etc.)."
+    )
+    subtotal_calculado = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        help_text="Subtotal calculado automáticamente sumando items activos."
+    )
+    
+    # SP3-T003: Campos para aceptación de presupuestos
     fecha_vigencia = models.DateField(
         null=True, 
         blank=True,
@@ -305,8 +352,73 @@ class Plandetratamiento(models.Model):
         ordering = ['-fechaplan']
     
     def __str__(self):
-        return f"Presupuesto #{self.id} - {self.codpaciente.codusuario.nombre} ({self.estado_aceptacion})"
+        return f"Plan #{self.id} - {self.codpaciente.codusuario.nombre} ({self.estado_plan})"
     
+    # SP3-T001: Métodos para gestión de plan
+    def es_borrador(self):
+        """Verifica si el plan está en estado borrador (editable)."""
+        return self.estado_plan == self.ESTADO_PLAN_BORRADOR
+    
+    def es_aprobado(self):
+        """Verifica si el plan fue aprobado (inmutable)."""
+        return self.estado_plan == self.ESTADO_PLAN_APROBADO
+    
+    def puede_editarse(self):
+        """
+        Verifica si el plan puede ser editado.
+        Solo planes en borrador y no aceptados pueden editarse.
+        """
+        return (
+            self.es_borrador() and 
+            self.es_editable and 
+            self.estado_aceptacion not in [self.ESTADO_ACEPTADO, self.ESTADO_RECHAZADO]
+        )
+    
+    def aprobar_plan(self, usuario):
+        """
+        Aprueba el plan de tratamiento, bloqueando su edición.
+        Crea una versión inmutable del plan.
+        """
+        if not self.es_borrador():
+            raise ValueError("Solo se pueden aprobar planes en estado borrador.")
+        
+        self.estado_plan = self.ESTADO_PLAN_APROBADO
+        self.fecha_aprobacion = timezone.now()
+        self.usuario_aprueba = usuario
+        self.es_editable = False
+        self.save(update_fields=['estado_plan', 'fecha_aprobacion', 'usuario_aprueba', 'es_editable'])
+    
+    def calcular_totales(self):
+        """
+        Calcula automáticamente subtotal y total basándose en items activos.
+        Solo cuenta items que NO están cancelados.
+        """
+        from decimal import Decimal
+        
+        items_activos = self.itemplandetratamiento_set.exclude(
+            estado_item__in=['cancelado', 'Cancelado']
+        )
+        
+        subtotal = sum(
+            Decimal(str(item.costofinal or 0)) 
+            for item in items_activos
+        )
+        
+        descuento_aplicado = Decimal(str(self.descuento or 0))
+        total = subtotal - descuento_aplicado
+        
+        self.subtotal_calculado = subtotal
+        self.montototal = total
+        self.save(update_fields=['subtotal_calculado', 'montototal'])
+        
+        return {
+            'subtotal': float(subtotal),
+            'descuento': float(descuento_aplicado),
+            'total': float(total),
+            'items_activos': items_activos.count()
+        }
+    
+    # SP3-T003: Métodos para aceptación de presupuestos
     def esta_vigente(self):
         """Verifica si el presupuesto está dentro de su fecha de vigencia."""
         if not self.fecha_vigencia:
@@ -320,9 +432,10 @@ class Plandetratamiento(models.Model):
     def puede_ser_aceptado(self):
         """
         Verifica si el presupuesto puede ser aceptado por el paciente.
-        Criterios: debe estar vigente y no haber sido aceptado previamente.
+        Criterios: debe estar aprobado, vigente y no aceptado previamente.
         """
         return (
+            self.es_aprobado() and
             self.esta_vigente() and 
             self.estado_aceptacion not in [self.ESTADO_ACEPTADO, self.ESTADO_RECHAZADO]
         )
@@ -448,15 +561,107 @@ class AceptacionPresupuesto(models.Model):
 
 
 class Itemplandetratamiento(models.Model):
-    idplantratamiento = models.ForeignKey(Plandetratamiento, models.DO_NOTHING, db_column='idplantratamiento')
+    """
+    Ítem individual del plan de tratamiento.
+    Representa un procedimiento/servicio específico a realizar.
+    """
+    # Estados del item (SP3-T001)
+    ESTADO_PENDIENTE = 'Pendiente'
+    ESTADO_ACTIVO = 'Activo'
+    ESTADO_CANCELADO = 'Cancelado'
+    ESTADO_COMPLETADO = 'Completado'
+    
+    ESTADOS_ITEM = [
+        (ESTADO_PENDIENTE, 'Pendiente'),
+        (ESTADO_ACTIVO, 'Activo (Habilita agenda)'),
+        (ESTADO_CANCELADO, 'Cancelado (No impacta total)'),
+        (ESTADO_COMPLETADO, 'Completado'),
+    ]
+    
+    # Campos originales
+    idplantratamiento = models.ForeignKey(Plandetratamiento, models.DO_NOTHING, db_column='idplantratamiento', related_name='itemplandetratamiento_set')
     idservicio = models.ForeignKey(Servicio, models.DO_NOTHING, db_column='idservicio')
     idpiezadental = models.ForeignKey('Piezadental', models.DO_NOTHING, db_column='idpiezadental', blank=True, null=True)
     idestado = models.ForeignKey('Estado', models.DO_NOTHING, db_column='idestado')
     costofinal = models.DecimalField(max_digits=10, decimal_places=2)
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='itemsPlanesTratamientos', null=True, blank=True)
+    
+    # SP3-T001: Nuevos campos para planificación
+    fecha_objetivo = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Fecha objetivo/estimada para realizar este procedimiento."
+    )
+    tiempo_estimado = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Tiempo estimado en minutos para el procedimiento."
+    )
+    estado_item = models.CharField(
+        max_length=20,
+        choices=ESTADOS_ITEM,
+        default=ESTADO_PENDIENTE,
+        help_text="Estado del item: Pendiente/Activo/Cancelado/Completado."
+    )
+    notas_item = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Notas específicas del item (observaciones, instrucciones, etc.)."
+    )
+    orden = models.PositiveIntegerField(
+        default=0,
+        help_text="Orden de ejecución del item en el plan (0 = sin orden específico)."
+    )
+    costo_base_servicio = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Costo base del servicio al momento de agregar al plan (para histórico)."
+    )
 
     class Meta:
         db_table = 'itemplandetratamiento'
+        ordering = ['orden', 'id']
+        verbose_name = 'Ítem de Plan de Tratamiento'
+        verbose_name_plural = 'Ítems de Planes de Tratamiento'
+    
+    def __str__(self):
+        servicio_nombre = self.idservicio.nombre if self.idservicio else 'Sin servicio'
+        return f"Item #{self.id} - {servicio_nombre} ({self.estado_item})"
+    
+    def esta_activo(self):
+        """Verifica si el item está activo (habilita agenda y cuenta para total)."""
+        return self.estado_item == self.ESTADO_ACTIVO
+    
+    def esta_cancelado(self):
+        """Verifica si el item fue cancelado (no impacta total)."""
+        return self.estado_item == self.ESTADO_CANCELADO
+    
+    def puede_editarse(self):
+        """Verifica si el item puede editarse (plan debe estar en borrador)."""
+        return self.idplantratamiento.puede_editarse()
+    
+    def activar(self):
+        """Activa el item (habilita para agenda y cálculo de totales)."""
+        if self.estado_item == self.ESTADO_CANCELADO:
+            raise ValueError("No se puede activar un item cancelado. Créalo nuevamente.")
+        self.estado_item = self.ESTADO_ACTIVO
+        self.save(update_fields=['estado_item'])
+    
+    def cancelar(self):
+        """Cancela el item (no impacta total ni habilita agenda)."""
+        self.estado_item = self.ESTADO_CANCELADO
+        self.save(update_fields=['estado_item'])
+        # Recalcular totales del plan
+        self.idplantratamiento.calcular_totales()
+    
+    def completar(self):
+        """Marca el item como completado."""
+        if not self.esta_activo():
+            raise ValueError("Solo items activos pueden marcarse como completados.")
+        self.estado_item = self.ESTADO_COMPLETADO
+        self.save(update_fields=['estado_item'])
 
 
 class Factura(models.Model):

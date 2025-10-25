@@ -34,6 +34,10 @@ from .views_presupuestos import PresupuestoViewSet, AceptacionPresupuestoViewSet
 router.register(r"presupuestos", PresupuestoViewSet, basename="presupuestos")
 router.register(r"aceptaciones", AceptacionPresupuestoViewSet, basename="aceptaciones")
 
+# Planes de Tratamiento (SP3-T001)
+from .views_plan_tratamiento import PlanTratamientoViewSet
+router.register(r"planes-tratamiento", PlanTratamientoViewSet, basename="planes-tratamiento")
+
 # Creación de Usuarios (Admin)
 router.register(r"crear-usuario", views_user_creation.CrearUsuarioViewSet, basename="crear-usuario")
 
@@ -81,6 +85,9 @@ urlpatterns = [
 
     # Clinic app - Alias para /api/clinic/servicios/
     path("clinic/", include("clinic.urls")),
+
+    # Users app - Alias para /api/users/odontologos/
+    path("users/", include("users.urls")),
 
     # Notificaciones mobile
     path("mobile-notif/", include("api.notifications_mobile.urls")),
