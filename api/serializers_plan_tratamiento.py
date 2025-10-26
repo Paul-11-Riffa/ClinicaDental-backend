@@ -105,6 +105,13 @@ class CrearItemPlanSerializer(serializers.ModelSerializer):
                 'tiempo_estimado': 'El tiempo estimado debe ser mayor a cero.'
             })
         
+        # Validar fecha objetivo no esté en el pasado
+        fecha_objetivo = data.get('fecha_objetivo')
+        if fecha_objetivo and fecha_objetivo < timezone.now().date():
+            raise serializers.ValidationError({
+                'fecha_objetivo': 'La fecha objetivo no puede ser en el pasado.'
+            })
+        
         return data
     
     def create(self, validated_data):
