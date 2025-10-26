@@ -38,6 +38,10 @@ router.register(r"aceptaciones", AceptacionPresupuestoViewSet, basename="aceptac
 from .views_plan_tratamiento import PlanTratamientoViewSet
 router.register(r"planes-tratamiento", PlanTratamientoViewSet, basename="planes-tratamiento")
 
+# Presupuestos Digitales (SP3-T002)
+from .views_presupuesto_digital import PresupuestoDigitalViewSet
+router.register(r"presupuestos-digitales", PresupuestoDigitalViewSet, basename="presupuestos-digitales")
+
 # Creación de Usuarios (Admin)
 router.register(r"crear-usuario", views_user_creation.CrearUsuarioViewSet, basename="crear-usuario")
 

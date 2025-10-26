@@ -251,22 +251,41 @@ class PlanTratamientoViewSet(viewsets.ModelViewSet):
         # Validar permisos (solo odontólogo asignado o admin)
         usuario = getattr(request.user, 'usuario', None)
         if not usuario:
-            return Response(
-                {'error': 'Usuario no encontrado.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            # Intentar obtener usuario por email
+            try:
+                usuario = Usuario.objects.get(correoelectronico__iexact=request.user.email)
+            except Usuario.DoesNotExist:
+                return Response(
+                    {
+                        'error': 'Usuario no encontrado.',
+                        'detalle': f'No existe usuario con email {request.user.email}'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         
         # Verificar si es el odontólogo del plan o admin
         es_odontologo_del_plan = False
         try:
             odontologo = Odontologo.objects.get(codusuario=usuario)
-            es_odontologo_del_plan = (plan.cododontologo.codusuario.codigo == odontologo.codusuario.codigo)
+            # Comparar directamente los objetos Odontologo (más simple y seguro)
+            es_odontologo_del_plan = (plan.cododontologo == odontologo)
         except Odontologo.DoesNotExist:
             pass
         
-        es_admin = usuario.idtipousuario and usuario.idtipousuario.rol.lower() == 'administrador'
+        # Verificar si es admin usando ID de tipo de usuario (más confiable que string)
+        es_admin = usuario.idtipousuario and usuario.idtipousuario.id == 1
+        
+        # Logging para debugging (temporal)
+        logger.info(f"=== APROBAR PLAN: Validación de permisos ===")
+        logger.info(f"Plan ID: {plan.id}")
+        logger.info(f"Usuario: {usuario.nombre} {usuario.apellido} (código: {usuario.codigo})")
+        logger.info(f"Usuario.idtipousuario: {usuario.idtipousuario.id} ({usuario.idtipousuario.rol})")
+        logger.info(f"Plan.cododontologo: {plan.cododontologo}")
+        logger.info(f"es_odontologo_del_plan: {es_odontologo_del_plan}")
+        logger.info(f"es_admin: {es_admin}")
         
         if not (es_odontologo_del_plan or es_admin):
+            logger.warning(f"ACCESO DENEGADO: Usuario {usuario.codigo} intentó aprobar plan {plan.id}")
             return Response(
                 {
                     'error': 'No autorizado.',
@@ -316,6 +335,111 @@ class PlanTratamientoViewSet(viewsets.ModelViewSet):
             'success': True,
             'mensaje': 'Plan de tratamiento aprobado exitosamente.',
             'plan': PlanTratamientoDetailSerializer(plan).data
+        }, status=status.HTTP_200_OK)
+    
+    # ========================================================================
+    # ACCIÓN: VALIDAR APROBACIÓN (Endpoint de diagnóstico)
+    # ========================================================================
+    
+    @action(detail=True, methods=['get'], url_path='validar-aprobacion')
+    def validar_aprobacion(self, request, pk=None):
+        """
+        Valida si un plan puede ser aprobado sin intentar aprobarlo.
+        Útil para mostrar mensajes al usuario antes de aprobar.
+        
+        GET /api/planes-tratamiento/{id}/validar-aprobacion/
+        
+        Respuesta:
+        {
+            "puede_aprobar": true/false,
+            "motivos": [...],
+            "detalles": {
+                "es_borrador": true/false,
+                "items_activos": 5,
+                "items_pendientes": 2,
+                "items_totales": 10,
+                "es_editable": true/false,
+                "usuario_puede_aprobar": true/false
+            }
+        }
+        """
+        plan = self.get_object()
+        usuario = getattr(request.user, 'usuario', None)
+        
+        # Fallback: intentar obtener usuario por email (igual que en aprobar_plan)
+        if not usuario:
+            try:
+                usuario = Usuario.objects.get(correoelectronico__iexact=request.user.email)
+            except Usuario.DoesNotExist:
+                # Si no hay usuario, retornar que no puede aprobar
+                return Response({
+                    'puede_aprobar': False,
+                    'motivos': ['Usuario no encontrado en el sistema.'],
+                    'detalles': {
+                        'error': 'No se pudo identificar al usuario',
+                        'email': request.user.email
+                    }
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Inicializar resultado
+        motivos = []
+        detalles = {
+            'es_borrador': plan.es_borrador(),
+            'items_totales': plan.itemplandetratamiento_set.count(),
+            'items_activos': plan.itemplandetratamiento_set.filter(estado_item='Activo').count(),
+            'items_pendientes': plan.itemplandetratamiento_set.filter(estado_item='Pendiente').count(),
+            'items_cancelados': plan.itemplandetratamiento_set.filter(estado_item='Cancelado').count(),
+            'items_completados': plan.itemplandetratamiento_set.filter(estado_item='Completado').count(),
+            'es_editable': plan.es_editable,
+            'estado_plan': plan.estado_plan,
+        }
+        
+        # Validar permisos de usuario (MISMA LÓGICA que aprobar_plan)
+        usuario_puede_aprobar = False
+        es_odontologo_del_plan = False
+        es_admin = False
+        
+        try:
+            odontologo = Odontologo.objects.get(codusuario=usuario)
+            # Comparar directamente los objetos Odontologo (igual que aprobar_plan)
+            es_odontologo_del_plan = (plan.cododontologo == odontologo)
+            usuario_puede_aprobar = es_odontologo_del_plan
+        except Odontologo.DoesNotExist:
+            pass
+        
+        # Verificar si es admin usando ID (más confiable que string)
+        es_admin = usuario.idtipousuario and usuario.idtipousuario.id == 1
+        if es_admin:
+            usuario_puede_aprobar = True
+        
+        # Agregar info de debugging
+        detalles['usuario_puede_aprobar'] = usuario_puede_aprobar
+        detalles['debug'] = {
+            'usuario_codigo': usuario.codigo,
+            'usuario_tipo_id': usuario.idtipousuario.id,
+            'usuario_tipo_rol': usuario.idtipousuario.rol,
+            'plan_odontologo_id': plan.cododontologo.codusuario.codigo if plan.cododontologo else None,
+            'es_odontologo_del_plan': es_odontologo_del_plan,
+            'es_admin': es_admin,
+        }
+        
+        # Validaciones
+        if not plan.es_borrador():
+            motivos.append(f"El plan ya está en estado '{plan.estado_plan}', solo se pueden aprobar planes en borrador.")
+        
+        items_activos_o_pendientes = detalles['items_activos'] + detalles['items_pendientes']
+        if items_activos_o_pendientes == 0:
+            motivos.append("El plan debe tener al menos un ítem activo o pendiente para ser aprobado.")
+        
+        if not usuario_puede_aprobar:
+            motivos.append("Solo el odontólogo asignado al plan o un administrador puede aprobarlo.")
+        
+        puede_aprobar = len(motivos) == 0
+        
+        return Response({
+            'puede_aprobar': puede_aprobar,
+            'motivos': motivos,
+            'detalles': detalles,
         }, status=status.HTTP_200_OK)
     
     # ========================================================================
@@ -381,6 +505,28 @@ class PlanTratamientoViewSet(viewsets.ModelViewSet):
         # Crear ítem
         serializer = CrearItemPlanSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        
+        # Validar items duplicados (mismo servicio + pieza dental)
+        servicio_id = serializer.validated_data.get('idservicio').id
+        pieza_id = serializer.validated_data.get('idpiezadental')
+        pieza_id = pieza_id.id if pieza_id else None
+        
+        existe_duplicado = Itemplandetratamiento.objects.filter(
+            idplantratamiento=plan,
+            idservicio_id=servicio_id,
+            idpiezadental_id=pieza_id,
+            estado_item__in=['Pendiente', 'Activo']
+        ).exists()
+        
+        if existe_duplicado:
+            return Response(
+                {
+                    'error': 'Ítem duplicado.',
+                    'detalle': 'Ya existe un ítem activo/pendiente con este servicio y pieza dental. Considere editarlo en lugar de crear uno nuevo.',
+                    'advertencia': True  # Flag para que el frontend pueda mostrar diálogo de confirmación
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         item = serializer.save(
             idplantratamiento=plan,
@@ -611,6 +757,24 @@ class PlanTratamientoViewSet(viewsets.ModelViewSet):
         
         item.cancelar()
         
+        # Registrar en bitácora
+        usuario = getattr(request.user, 'usuario', None)
+        
+        Bitacora.objects.create(
+            empresa=request.tenant,
+            usuario=usuario,
+            accion='CANCELAR_ITEM_PLAN',
+            tabla_afectada='itemplandetratamiento',
+            registro_id=item.id,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+            valores_nuevos={
+                'plan_id': plan.id,
+                'item_id': item.id,
+                'estado_item': item.estado_item,
+            }
+        )
+        
         return Response({
             'success': True,
             'mensaje': 'Ítem cancelado exitosamente. No impacta el total del plan.',
@@ -620,3 +784,314 @@ class PlanTratamientoViewSet(viewsets.ModelViewSet):
                 'total': str(plan.montototal)
             }
         }, status=status.HTTP_200_OK)
+    
+    # ========================================================================
+    # ACCIÓN: ESTADÍSTICAS POR PACIENTE (Mejora UX)
+    # ========================================================================
+    
+    @action(detail=False, methods=['get'], url_path='estadisticas-paciente/(?P<paciente_id>[^/.]+)')
+    def estadisticas_paciente(self, request, paciente_id=None):
+        """
+        Retorna estadísticas agregadas de todos los planes de un paciente.
+        
+        GET /api/planes-tratamiento/estadisticas-paciente/{paciente_id}/
+        
+        Response:
+        {
+            "paciente": {...},
+            "estadisticas": {
+                "total_planes": 3,
+                "planes_borrador": 1,
+                "planes_aprobados": 2,
+                "total_invertido": "4500.00",
+                "items_completados": 8,
+                "items_pendientes": 3,
+                "progreso_global": 72.7
+            },
+            "planes": [...]
+        }
+        """
+        # Validar paciente
+        try:
+            paciente = Paciente.objects.get(
+                codusuario__codigo=paciente_id,
+                empresa=request.tenant
+            )
+        except Paciente.DoesNotExist:
+            return Response(
+                {'error': 'Paciente no encontrado.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Obtener todos los planes del paciente
+        planes = Plandetratamiento.objects.filter(
+            codpaciente=paciente,
+            empresa=request.tenant
+        ).prefetch_related('itemplandetratamiento_set')
+        
+        # Calcular estadísticas
+        total_planes = planes.count()
+        planes_borrador = planes.filter(estado_plan=Plandetratamiento.ESTADO_PLAN_BORRADOR).count()
+        planes_aprobados = planes.filter(estado_plan=Plandetratamiento.ESTADO_PLAN_APROBADO).count()
+        planes_cancelados = planes.filter(estado_plan=Plandetratamiento.ESTADO_PLAN_CANCELADO).count()
+        
+        total_invertido = sum(
+            float(plan.montototal or 0) 
+            for plan in planes.filter(estado_plan=Plandetratamiento.ESTADO_PLAN_APROBADO)
+        )
+        
+        # Estadísticas de ítems
+        items_completados = 0
+        items_pendientes = 0
+        items_activos = 0
+        items_total = 0
+        
+        for plan in planes:
+            items = plan.itemplandetratamiento_set.all()
+            items_total += items.count()
+            items_completados += items.filter(estado_item='Completado').count()
+            items_pendientes += items.filter(estado_item='Pendiente').count()
+            items_activos += items.filter(estado_item='Activo').count()
+        
+        # Progreso global (% de items completados sobre items no cancelados)
+        items_no_cancelados = items_total - sum(
+            plan.itemplandetratamiento_set.filter(estado_item='Cancelado').count()
+            for plan in planes
+        )
+        progreso_global = (
+            round((items_completados / items_no_cancelados) * 100, 1) 
+            if items_no_cancelados > 0 else 0
+        )
+        
+        # Datos de los planes
+        planes_data = []
+        for plan in planes.order_by('-fechaplan'):
+            items = plan.itemplandetratamiento_set.exclude(estado_item='Cancelado')
+            completados = items.filter(estado_item='Completado').count()
+            total = items.count()
+            progreso = round((completados / total) * 100, 1) if total > 0 else 0
+            
+            planes_data.append({
+                'id': plan.id,
+                'fechaplan': plan.fechaplan,
+                'estado_plan': plan.estado_plan,
+                'montototal': str(plan.montototal or 0),
+                'cantidad_items': total,
+                'items_completados': completados,
+                'progreso_porcentaje': progreso,
+                'fecha_aprobacion': plan.fecha_aprobacion.isoformat() if plan.fecha_aprobacion else None,
+            })
+        
+        # Respuesta
+        return Response({
+            'paciente': {
+                'id': paciente.codusuario.codigo,
+                'nombre': paciente.codusuario.nombre,
+                'apellido': paciente.codusuario.apellido,
+                'email': paciente.codusuario.correoelectronico,
+            },
+            'estadisticas': {
+                'total_planes': total_planes,
+                'planes_borrador': planes_borrador,
+                'planes_aprobados': planes_aprobados,
+                'planes_cancelados': planes_cancelados,
+                'total_invertido': f"{total_invertido:.2f}",
+                'items_completados': items_completados,
+                'items_pendientes': items_pendientes,
+                'items_activos': items_activos,
+                'items_total': items_total,
+                'progreso_global': progreso_global,
+            },
+            'planes': planes_data
+        })
+    
+    # ========================================================================
+    # ACCIÓN: CLONAR PLAN (Mejora UX)
+    # ========================================================================
+    
+    @action(detail=True, methods=['post'], url_path='clonar')
+    @transaction.atomic
+    def clonar_plan(self, request, pk=None):
+        """
+        Clona un plan de tratamiento existente para reutilizar su estructura.
+        
+        POST /api/planes-tratamiento/{id}/clonar/
+        
+        Payload:
+        {
+            "codpaciente": 10,  // Nuevo paciente (o el mismo)
+            "cododontologo": 3, // Nuevo odontólogo (opcional, usa el original)
+            "clonar_items": true, // Si se copian los ítems (default: true)
+            "notas_adicionales": "Plan clonado del plan #{id_original}"
+        }
+        
+        Response:
+        {
+            "success": true,
+            "mensaje": "Plan clonado exitosamente",
+            "plan_original_id": 5,
+            "plan_nuevo": {
+                "id": 15,
+                "estado_plan": "Borrador",
+                "cantidad_items": 5,
+                ...
+            }
+        }
+        """
+        plan_original = self.get_object()
+        
+        # Validar permisos
+        usuario = getattr(request.user, 'usuario', None)
+        if not usuario:
+            return Response(
+                {'error': 'Usuario no encontrado.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Obtener datos del payload
+        codpaciente_id = request.data.get('codpaciente')
+        cododontologo_id = request.data.get('cododontologo', plan_original.cododontologo.codusuario.codigo)
+        clonar_items = request.data.get('clonar_items', True)
+        notas_adicionales = request.data.get('notas_adicionales', '')
+        
+        # Validar paciente y odontólogo
+        try:
+            paciente = Paciente.objects.get(codusuario__codigo=codpaciente_id, empresa=request.tenant)
+            odontologo = Odontologo.objects.get(codusuario__codigo=cododontologo_id, empresa=request.tenant)
+        except (Paciente.DoesNotExist, Odontologo.DoesNotExist):
+            return Response(
+                {'error': 'Paciente u odontólogo no encontrado o no pertenece a esta empresa.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Crear nuevo plan (clon)
+        plan_nuevo = Plandetratamiento.objects.create(
+            codpaciente=paciente,
+            cododontologo=odontologo,
+            empresa=request.tenant,
+            idestado=plan_original.idestado,
+            fechaplan=timezone.now().date(),
+            estado_plan=Plandetratamiento.ESTADO_PLAN_BORRADOR,
+            descuento=plan_original.descuento or 0,
+            notas_plan=f"{plan_original.notas_plan or ''}\n\n{notas_adicionales}".strip(),
+            fecha_vigencia=plan_original.fecha_vigencia,
+            version=1,  # Nuevo plan independiente
+            montototal=0,
+            subtotal_calculado=0,
+        )
+        
+        # Clonar ítems si se solicita
+        items_clonados = 0
+        if clonar_items:
+            items_originales = plan_original.itemplandetratamiento_set.exclude(
+                estado_item__in=['Cancelado', 'cancelado']
+            )
+            
+            for item_orig in items_originales:
+                Itemplandetratamiento.objects.create(
+                    idplantratamiento=plan_nuevo,
+                    idservicio=item_orig.idservicio,
+                    idpiezadental=item_orig.idpiezadental,
+                    idestado=item_orig.idestado,
+                    empresa=request.tenant,
+                    costofinal=item_orig.costofinal,
+                    costo_base_servicio=item_orig.costo_base_servicio,
+                    fecha_objetivo=None,  # Resetear fecha
+                    tiempo_estimado=item_orig.tiempo_estimado,
+                    estado_item=Itemplandetratamiento.ESTADO_PENDIENTE,  # Resetear a pendiente
+                    notas_item=item_orig.notas_item,
+                    orden=item_orig.orden,
+                )
+                items_clonados += 1
+            
+            # Recalcular totales
+            plan_nuevo.calcular_totales()
+        
+        # Registrar en bitácora
+        Bitacora.objects.create(
+            empresa=request.tenant,
+            usuario=usuario,
+            accion='CLONAR_PLAN_TRATAMIENTO',
+            tabla_afectada='plandetratamiento',
+            registro_id=plan_nuevo.id,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+            valores_nuevos={
+                'plan_original_id': plan_original.id,
+                'plan_nuevo_id': plan_nuevo.id,
+                'items_clonados': items_clonados,
+                'paciente_nuevo': str(paciente.codusuario),
+            }
+        )
+        
+        # Respuesta exitosa
+        return Response({
+            'success': True,
+            'mensaje': f'Plan clonado exitosamente. {items_clonados} ítems copiados.',
+            'plan_original_id': plan_original.id,
+            'plan_nuevo': PlanTratamientoDetailSerializer(plan_nuevo, context={'request': request}).data
+        }, status=status.HTTP_201_CREATED)
+    
+    # ========================================================================
+    # ACCIÓN: COMPLETAR ÍTEM (SP3-T001e)
+    # ========================================================================
+    
+    @action(detail=True, methods=['post'], url_path='items/(?P<item_id>[^/.]+)/completar')
+    @transaction.atomic
+    def completar_item(self, request, pk=None, item_id=None):
+        """
+        Marca un ítem como completado (tratamiento finalizado).
+        
+        POST /api/planes-tratamiento/{id}/items/{item_id}/completar/
+        
+        Validaciones:
+        - El item debe estar activo (no cancelado)
+        - El plan puede estar aprobado o en borrador
+        
+        Response:
+        {
+            "success": true,
+            "mensaje": "Ítem completado exitosamente.",
+            "item": {...}
+        }
+        """
+        plan = self.get_object()
+        item = get_object_or_404(Itemplandetratamiento, id=item_id, idplantratamiento=plan)
+        
+        try:
+            # Completar el ítem
+            item.completar()
+            
+            # Registrar en bitácora
+            usuario = getattr(request.user, 'usuario', None)
+            
+            Bitacora.objects.create(
+                empresa=request.tenant,
+                usuario=usuario,
+                accion='COMPLETAR_ITEM_PLAN',
+                tabla_afectada='itemplandetratamiento',
+                registro_id=item.id,
+                ip_address=get_client_ip(request),
+                user_agent=get_user_agent(request),
+                valores_nuevos={
+                    'plan_id': plan.id,
+                    'item_id': item.id,
+                    'servicio': str(item.idservicio),
+                    'estado_item': item.estado_item,
+                }
+            )
+            
+            return Response({
+                'success': True,
+                'mensaje': 'Ítem completado exitosamente.',
+                'item': ItemPlanTratamientoSerializer(item).data
+            }, status=status.HTTP_200_OK)
+        
+        except ValueError as e:
+            return Response(
+                {
+                    'error': str(e),
+                    'detalle': 'Solo items activos pueden marcarse como completados.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )

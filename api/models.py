@@ -579,7 +579,12 @@ class Itemplandetratamiento(models.Model):
     ]
     
     # Campos originales
-    idplantratamiento = models.ForeignKey(Plandetratamiento, models.DO_NOTHING, db_column='idplantratamiento', related_name='itemplandetratamiento_set')
+    idplantratamiento = models.ForeignKey(
+        Plandetratamiento, 
+        on_delete=models.CASCADE,  # ✅ Elimina ítems automáticamente cuando se elimina el plan
+        db_column='idplantratamiento', 
+        related_name='itemplandetratamiento_set'
+    )
     idservicio = models.ForeignKey(Servicio, models.DO_NOTHING, db_column='idservicio')
     idpiezadental = models.ForeignKey('Piezadental', models.DO_NOTHING, db_column='idpiezadental', blank=True, null=True)
     idestado = models.ForeignKey('Estado', models.DO_NOTHING, db_column='idestado')
@@ -967,3 +972,296 @@ class DocumentoClinico(models.Model):
 
     def __str__(self):
         return f"{self.tipo_documento} - {self.nombre_archivo} - Paciente: {self.codpaciente}"
+
+
+# +++ SP3-T002: Presupuesto Digital +++
+class PresupuestoDigital(models.Model):
+    """
+    Presupuesto digital generado a partir de un Plan de Tratamiento aprobado.
+    
+    Permite generar presupuestos totales o parciales (por tramos) seleccionando
+    qué ítems del plan incluir, con gestión de vigencia y estados.
+    
+    SP3-T002: Generar presupuesto digital (web)
+    """
+    # Estados del presupuesto
+    ESTADO_BORRADOR = 'Borrador'
+    ESTADO_EMITIDO = 'Emitido'
+    ESTADO_CADUCADO = 'Caducado'
+    ESTADO_ANULADO = 'Anulado'
+    
+    ESTADOS_CHOICES = [
+        (ESTADO_BORRADOR, 'Borrador (Editable)'),
+        (ESTADO_EMITIDO, 'Emitido (Inmutable)'),
+        (ESTADO_CADUCADO, 'Caducado'),
+        (ESTADO_ANULADO, 'Anulado'),
+    ]
+    
+    # Relaciones
+    plan_tratamiento = models.ForeignKey(
+        Plandetratamiento,
+        on_delete=models.CASCADE,
+        related_name='presupuestos_digitales',
+        help_text="Plan de tratamiento aprobado del cual se generó este presupuesto."
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='presupuestos_digitales',
+        null=True,
+        blank=True
+    )
+    
+    # Identificación única
+    codigo_presupuesto = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        help_text="Código único de trazabilidad del presupuesto."
+    )
+    
+    # Fechas
+    fecha_emision = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Fecha y hora de creación del presupuesto."
+    )
+    fecha_vigencia = models.DateField(
+        help_text="Fecha límite de validez del presupuesto. Después caduca."
+    )
+    fecha_emitido = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Fecha en que el presupuesto fue oficialmente emitido."
+    )
+    
+    # Usuario que emite
+    usuario_emite = models.ForeignKey(
+        Usuario,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='presupuestos_emitidos',
+        help_text="Usuario (odontólogo/admin) que emitió el presupuesto."
+    )
+    
+    # Estado y tipo
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADOS_CHOICES,
+        default=ESTADO_BORRADOR,
+        help_text="Estado actual del presupuesto."
+    )
+    es_tramo = models.BooleanField(
+        default=False,
+        help_text="Indica si es un presupuesto parcial (tramo) o total."
+    )
+    numero_tramo = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Número de tramo si es presupuesto parcial (1, 2, 3...)."
+    )
+    
+    # Montos
+    subtotal = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        help_text="Suma de todos los items incluidos antes de descuentos."
+    )
+    descuento = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        help_text="Descuento aplicado al presupuesto completo."
+    )
+    total = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        help_text="Monto total del presupuesto (subtotal - descuento)."
+    )
+    
+    # Términos y condiciones
+    terminos_condiciones = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Términos y condiciones específicos de este presupuesto."
+    )
+    notas = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Notas adicionales o aclaraciones del presupuesto."
+    )
+    
+    # PDF generado
+    pdf_url = models.URLField(
+        max_length=500,
+        null=True,
+        blank=True,
+        help_text="URL del PDF generado del presupuesto (S3 o storage)."
+    )
+    pdf_generado = models.BooleanField(
+        default=False,
+        help_text="Indica si se generó el PDF del presupuesto."
+    )
+    
+    # Control de edición
+    es_editable = models.BooleanField(
+        default=True,
+        help_text="Indica si el presupuesto puede editarse. Se bloquea al emitir."
+    )
+    
+    # Timestamps
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_actualizacion = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'presupuesto_digital'
+        verbose_name = 'Presupuesto Digital'
+        verbose_name_plural = 'Presupuestos Digitales'
+        ordering = ['-fecha_emision']
+        indexes = [
+            models.Index(fields=['plan_tratamiento', 'estado']),
+            models.Index(fields=['empresa', 'fecha_emision']),
+            models.Index(fields=['codigo_presupuesto']),
+        ]
+    
+    def __str__(self):
+        tipo = "Tramo" if self.es_tramo else "Total"
+        return f"Presupuesto {tipo} #{self.codigo_presupuesto.hex[:8]} - {self.estado}"
+    
+    def esta_vigente(self):
+        """Verifica si el presupuesto está dentro de su fecha de vigencia."""
+        if self.estado == self.ESTADO_CADUCADO:
+            return False
+        return timezone.now().date() <= self.fecha_vigencia
+    
+    def puede_editarse(self):
+        """Solo presupuestos en borrador pueden editarse."""
+        return self.estado == self.ESTADO_BORRADOR and self.es_editable
+    
+    def emitir(self, usuario):
+        """
+        Emite el presupuesto oficialmente, bloqueando su edición.
+        """
+        if self.estado != self.ESTADO_BORRADOR:
+            raise ValueError("Solo presupuestos en borrador pueden ser emitidos.")
+        
+        self.estado = self.ESTADO_EMITIDO
+        self.fecha_emitido = timezone.now()
+        self.usuario_emite = usuario
+        self.es_editable = False
+        self.save(update_fields=['estado', 'fecha_emitido', 'usuario_emite', 'es_editable'])
+    
+    def marcar_caducado(self):
+        """Marca el presupuesto como caducado si venció su vigencia."""
+        if not self.esta_vigente() and self.estado == self.ESTADO_EMITIDO:
+            self.estado = self.ESTADO_CADUCADO
+            self.save(update_fields=['estado'])
+    
+    def calcular_totales(self):
+        """
+        Recalcula subtotal y total basándose en los items incluidos.
+        """
+        from decimal import Decimal
+        
+        items = self.items_presupuesto.all()
+        
+        subtotal = sum(
+            Decimal(str(item.precio_unitario or 0)) 
+            for item in items
+        )
+        
+        descuento_aplicado = Decimal(str(self.descuento or 0))
+        total = subtotal - descuento_aplicado
+        
+        self.subtotal = subtotal
+        self.total = total
+        self.save(update_fields=['subtotal', 'total'])
+        
+        return {
+            'subtotal': float(subtotal),
+            'descuento': float(descuento_aplicado),
+            'total': float(total),
+            'items_count': items.count()
+        }
+
+
+class ItemPresupuestoDigital(models.Model):
+    """
+    Ítem individual dentro de un presupuesto digital.
+    
+    Representa cada servicio/tratamiento incluido en el presupuesto,
+    con su precio, descuentos y opciones de pago.
+    """
+    presupuesto = models.ForeignKey(
+        PresupuestoDigital,
+        on_delete=models.CASCADE,
+        related_name='items_presupuesto',
+        help_text="Presupuesto al que pertenece este ítem."
+    )
+    item_plan = models.ForeignKey(
+        Itemplandetratamiento,
+        on_delete=models.CASCADE,
+        related_name='items_en_presupuestos',
+        help_text="Ítem del plan de tratamiento que representa este presupuesto."
+    )
+    
+    # Pricing
+    precio_unitario = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Precio del servicio para este presupuesto."
+    )
+    descuento_item = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        help_text="Descuento aplicado específicamente a este ítem."
+    )
+    precio_final = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Precio final después de descuentos (precio_unitario - descuento_item)."
+    )
+    
+    # Pagos parciales
+    permite_pago_parcial = models.BooleanField(
+        default=False,
+        help_text="Indica si este ítem acepta pagos fraccionados."
+    )
+    cantidad_cuotas = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Número de cuotas disponibles si permite pago parcial."
+    )
+    
+    # Notas específicas del ítem
+    notas_item = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Notas o aclaraciones específicas de este ítem."
+    )
+    
+    # Orden en el presupuesto
+    orden = models.PositiveIntegerField(
+        default=0,
+        help_text="Orden de visualización del ítem en el presupuesto."
+    )
+    
+    class Meta:
+        db_table = 'item_presupuesto_digital'
+        verbose_name = 'Ítem de Presupuesto'
+        verbose_name_plural = 'Ítems de Presupuesto'
+        ordering = ['presupuesto', 'orden']
+        unique_together = [['presupuesto', 'item_plan']]
+    
+    def __str__(self):
+        servicio = self.item_plan.idservicio.nombre if self.item_plan and self.item_plan.idservicio else "Sin servicio"
+        return f"{servicio} - ${self.precio_final}"
+    
+    def save(self, *args, **kwargs):
+        """Calcula precio_final automáticamente antes de guardar."""
+        from decimal import Decimal
+        self.precio_final = Decimal(str(self.precio_unitario)) - Decimal(str(self.descuento_item or 0))
+        super().save(*args, **kwargs)
