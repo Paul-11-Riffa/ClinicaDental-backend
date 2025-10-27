@@ -175,6 +175,166 @@ class Servicio(models.Model):
         return f"{self.nombre} - ${self.costobase}"
 
 
+class ComboServicio(models.Model):
+    """
+    Representa un paquete o combo de servicios dentales con precio especial.
+    
+    Tipos de regla de precio:
+    - PORCENTAJE: Descuento sobre la suma de servicios individuales
+    - MONTO_FIJO: Precio fijo del combo (independiente de servicios)
+    - PROMOCION: Precio promocional especial
+    """
+    TIPO_PRECIO_CHOICES = [
+        ('PORCENTAJE', 'Descuento Porcentual'),
+        ('MONTO_FIJO', 'Monto Fijo'),
+        ('PROMOCION', 'Precio Promocional'),
+    ]
+    
+    nombre = models.CharField(
+        max_length=255,
+        help_text="Nombre del combo (ej: 'Paquete Blanqueamiento Completo')"
+    )
+    descripcion = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Descripción detallada del combo"
+    )
+    tipo_precio = models.CharField(
+        max_length=20,
+        choices=TIPO_PRECIO_CHOICES,
+        default='PORCENTAJE',
+        help_text="Tipo de regla de precio aplicada al combo"
+    )
+    valor_precio = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Valor según tipo_precio: % de descuento, monto fijo, o precio promocional"
+    )
+    activo = models.BooleanField(
+        default=True,
+        help_text="Indica si el combo está disponible para su uso"
+    )
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_modificacion = models.DateTimeField(auto_now=True)
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='combos_servicios',
+        null=True,
+        blank=True
+    )
+    
+    class Meta:
+        db_table = 'combo_servicio'
+        ordering = ['-fecha_creacion']
+        verbose_name = 'Combo de Servicios'
+        verbose_name_plural = 'Combos de Servicios'
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(valor_precio__gte=0),
+                name='combo_valor_precio_no_negativo'
+            )
+        ]
+    
+    def __str__(self):
+        return f"{self.nombre} ({self.empresa.nombre if self.empresa else 'Sin empresa'})"
+    
+    def calcular_precio_total_servicios(self):
+        """Calcula la suma de los precios de todos los servicios incluidos."""
+        from decimal import Decimal
+        total = Decimal('0.00')
+        for detalle in self.detalles.all():
+            total += detalle.servicio.costobase * detalle.cantidad
+        return total
+    
+    def calcular_precio_final(self):
+        """
+        Calcula el precio final del combo según el tipo de precio.
+        
+        Returns:
+            Decimal: Precio final del combo
+        """
+        from decimal import Decimal
+        
+        precio_servicios = self.calcular_precio_total_servicios()
+        
+        if self.tipo_precio == 'PORCENTAJE':
+            # Aplica descuento porcentual sobre el total de servicios
+            descuento = precio_servicios * (self.valor_precio / Decimal('100'))
+            precio_final = precio_servicios - descuento
+        elif self.tipo_precio == 'MONTO_FIJO':
+            # Precio fijo del combo
+            precio_final = self.valor_precio
+        elif self.tipo_precio == 'PROMOCION':
+            # Precio promocional especial
+            precio_final = self.valor_precio
+        else:
+            precio_final = precio_servicios
+        
+        # Validar que el precio final no sea negativo
+        if precio_final < 0:
+            raise ValueError("El precio final del combo no puede ser negativo")
+        
+        return precio_final
+    
+    def calcular_duracion_total(self):
+        """Calcula la duración total estimada del combo en minutos."""
+        duracion_total = 0
+        for detalle in self.detalles.all():
+            duracion_total += detalle.servicio.duracion * detalle.cantidad
+        return duracion_total
+
+
+class ComboServicioDetalle(models.Model):
+    """
+    Representa un servicio individual dentro de un combo.
+    Define qué servicios están incluidos y en qué cantidad.
+    """
+    combo = models.ForeignKey(
+        ComboServicio,
+        on_delete=models.CASCADE,
+        related_name='detalles',
+        help_text="Combo al que pertenece este detalle"
+    )
+    servicio = models.ForeignKey(
+        Servicio,
+        on_delete=models.PROTECT,
+        related_name='combos_detalle',
+        help_text="Servicio incluido en el combo"
+    )
+    cantidad = models.PositiveIntegerField(
+        default=1,
+        help_text="Cantidad de veces que se incluye este servicio en el combo"
+    )
+    orden = models.PositiveIntegerField(
+        default=0,
+        help_text="Orden de presentación del servicio en el combo"
+    )
+    
+    class Meta:
+        db_table = 'combo_servicio_detalle'
+        ordering = ['orden', 'id']
+        verbose_name = 'Detalle de Combo'
+        verbose_name_plural = 'Detalles de Combos'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['combo', 'servicio'],
+                name='unique_combo_servicio'
+            ),
+            models.CheckConstraint(
+                check=models.Q(cantidad__gt=0),
+                name='combo_detalle_cantidad_positiva'
+            )
+        ]
+    
+    def __str__(self):
+        return f"{self.servicio.nombre} x{self.cantidad} en {self.combo.nombre}"
+    
+    def calcular_subtotal(self):
+        """Calcula el subtotal de este detalle (precio del servicio * cantidad)."""
+        return self.servicio.costobase * self.cantidad
+
+
 class Insumo(models.Model):
     nombre = models.CharField(max_length=255)
     descripcion = models.TextField(blank=True, null=True)

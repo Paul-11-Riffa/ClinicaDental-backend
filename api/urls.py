@@ -42,6 +42,10 @@ router.register(r"planes-tratamiento", PlanTratamientoViewSet, basename="planes-
 from .views_presupuesto_digital import PresupuestoDigitalViewSet
 router.register(r"presupuestos-digitales", PresupuestoDigitalViewSet, basename="presupuestos-digitales")
 
+# Combos de Servicios (SP3-T007)
+from .views_combos import ComboServicioViewSet
+router.register(r"combos-servicios", ComboServicioViewSet, basename="combos-servicios")
+
 # Creación de Usuarios (Admin)
 router.register(r"crear-usuario", views_user_creation.CrearUsuarioViewSet, basename="crear-usuario")
 
