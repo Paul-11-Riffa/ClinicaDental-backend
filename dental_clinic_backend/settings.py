@@ -264,6 +264,10 @@ REST_FRAMEWORK = {
         'notifications': '100/hour',
         'device_registration': '10/day',
         'preference_updates': '50/hour',
+        # SP3-T003: Throttling para presupuestos digitales
+        'aceptacion_presupuesto': '10/hour',  # Limitar aceptaciones
+        'presupuesto_list': '100/hour',  # Limitar consultas de lista
+        'presupuesto_anon': '20/day',  # Usuarios anónimos más restrictivo
     }
 }
 

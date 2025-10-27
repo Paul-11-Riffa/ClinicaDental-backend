@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.apps import apps
 from .models import (
     Empresa, Usuario, Paciente, Odontologo, Recepcionista,
-    Consulta, Historialclinico, Bitacora
+    Consulta, Historialclinico, Bitacora, ComboServicio, ComboServicioDetalle
 )
 # Importar los admin sites personalizados
 from dental_clinic_backend.admin_sites import tenant_admin_site, public_admin_site
@@ -158,13 +158,86 @@ class BitacoraAdmin(TenantFilteredAdmin):
     get_usuario.short_description = 'Usuario'
 
 
+# ===== COMBOS DE SERVICIOS =====
+
+class ComboServicioDetalleInline(admin.TabularInline):
+    """Inline para mostrar servicios dentro del combo"""
+    model = ComboServicioDetalle
+    extra = 1
+    fields = ('servicio', 'cantidad', 'orden', 'get_subtotal')
+    readonly_fields = ('get_subtotal',)
+    
+    def get_subtotal(self, obj):
+        if obj.id:
+            return f"${obj.calcular_subtotal()}"
+        return "-"
+    get_subtotal.short_description = 'Subtotal'
+
+
+@admin.register(ComboServicio, site=tenant_admin_site)
+@admin.register(ComboServicio, site=public_admin_site)
+class ComboServicioAdmin(TenantFilteredAdmin):
+    list_display = ('id', 'nombre', 'tipo_precio', 'valor_precio', 'get_precio_final', 
+                    'get_cantidad_servicios', 'activo', 'empresa', 'fecha_creacion')
+    list_filter = ('activo', 'tipo_precio', 'fecha_creacion', 'empresa')
+    search_fields = ('nombre', 'descripcion')
+    readonly_fields = ('get_precio_total_servicios', 'get_precio_final', 'get_ahorro', 
+                       'get_duracion_total', 'fecha_creacion', 'fecha_modificacion')
+    inlines = [ComboServicioDetalleInline]
+    fieldsets = (
+        ('Información Básica', {
+            'fields': ('nombre', 'descripcion', 'activo')
+        }),
+        ('Configuración de Precio', {
+            'fields': ('tipo_precio', 'valor_precio')
+        }),
+        ('Cálculos', {
+            'fields': ('get_precio_total_servicios', 'get_precio_final', 'get_ahorro', 'get_duracion_total'),
+            'classes': ('collapse',)
+        }),
+        ('Metadatos', {
+            'fields': ('fecha_creacion', 'fecha_modificacion', 'empresa'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def get_precio_final(self, obj):
+        try:
+            return f"${obj.calcular_precio_final()}"
+        except ValueError as e:
+            return f"Error: {e}"
+    get_precio_final.short_description = 'Precio Final'
+    
+    def get_precio_total_servicios(self, obj):
+        return f"${obj.calcular_precio_total_servicios()}"
+    get_precio_total_servicios.short_description = 'Precio Total Servicios'
+    
+    def get_ahorro(self, obj):
+        try:
+            precio_servicios = obj.calcular_precio_total_servicios()
+            precio_final = obj.calcular_precio_final()
+            ahorro = precio_servicios - precio_final
+            return f"${ahorro}" if ahorro > 0 else "$0.00"
+        except:
+            return "$0.00"
+    get_ahorro.short_description = 'Ahorro'
+    
+    def get_duracion_total(self, obj):
+        return f"{obj.calcular_duracion_total()} min"
+    get_duracion_total.short_description = 'Duración Total'
+    
+    def get_cantidad_servicios(self, obj):
+        return obj.detalles.count()
+    get_cantidad_servicios.short_description = 'Servicios'
+
+
 # Registrar el resto de modelos automáticamente
 app_config = apps.get_app_config("api")
 
 for model in app_config.get_models():
     # Saltar los que ya registramos manualmente
     if model in [Empresa, Usuario, Paciente, Odontologo, Recepcionista, 
-                 Consulta, Historialclinico, Bitacora]:
+                 Consulta, Historialclinico, Bitacora, ComboServicio, ComboServicioDetalle]:
         continue
     
     try:

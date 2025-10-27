@@ -497,3 +497,317 @@ class ActualizarPresupuestoSerializer(serializers.ModelSerializer):
             )
         
         return instance
+
+
+# =========================================================================
+# SERIALIZERS PARA ACEPTACIÓN DE PRESUPUESTOS (SP3-T003)
+# =========================================================================
+
+class PresupuestoDigitalParaPacienteSerializer(serializers.ModelSerializer):
+    """
+    Serializer para mostrar presupuestos digitales al paciente.
+    Incluye validaciones y metadata útil para la UI de aceptación.
+    
+    SP3-T003: Aceptar presupuesto digital por paciente
+    """
+    codigo_corto = serializers.SerializerMethodField()
+    dias_para_vencimiento = serializers.SerializerMethodField()
+    esta_vigente = serializers.SerializerMethodField()
+    puede_ser_aceptado = serializers.SerializerMethodField()
+    paciente_info = serializers.SerializerMethodField()
+    odontologo_info = serializers.SerializerMethodField()
+    items = ItemPresupuestoSerializer(source='items_presupuesto', many=True, read_only=True)
+    permite_aceptacion_parcial = serializers.SerializerMethodField()
+    estado_aceptacion_display = serializers.CharField(
+        source='get_estado_aceptacion_display',
+        read_only=True
+    )
+    
+    class Meta:
+        model = PresupuestoDigital
+        fields = [
+            'id',
+            'codigo_presupuesto',
+            'codigo_corto',
+            'fecha_emision',
+            'fecha_vigencia',
+            'fecha_emitido',
+            'dias_para_vencimiento',
+            'esta_vigente',
+            'estado',
+            'estado_aceptacion',
+            'estado_aceptacion_display',
+            'fecha_aceptacion',
+            'tipo_aceptacion',
+            'puede_ser_aceptado',
+            'es_editable',
+            'paciente_info',
+            'odontologo_info',
+            'subtotal',
+            'descuento',
+            'total',
+            'items',
+            'permite_aceptacion_parcial',
+            'terminos_condiciones',
+            'notas',
+            'pdf_url',
+            'pdf_generado',
+            'comprobante_aceptacion_url',
+        ]
+        read_only_fields = fields
+    
+    def get_codigo_corto(self, obj):
+        """Código corto de 8 caracteres para mostrar en UI."""
+        return obj.codigo_presupuesto.hex[:8].upper()
+    
+    def get_dias_para_vencimiento(self, obj):
+        """Días restantes hasta que caduque el presupuesto."""
+        if not obj.fecha_vigencia:
+            return None
+        delta = obj.fecha_vigencia - timezone.now().date()
+        return delta.days
+    
+    def get_esta_vigente(self, obj):
+        """Si el presupuesto está dentro de su vigencia."""
+        return obj.esta_vigente()
+    
+    def get_puede_ser_aceptado(self, obj):
+        """Si el presupuesto puede ser aceptado actualmente."""
+        return obj.puede_ser_aceptado()
+    
+    def get_paciente_info(self, obj):
+        """Información del paciente."""
+        try:
+            paciente = obj.plan_tratamiento.codpaciente
+            return {
+                'id': paciente.codigo,
+                'nombre': paciente.codusuario.nombre,
+                'apellido': paciente.codusuario.apellido,
+                'email': paciente.codusuario.correoelectronico,
+                'telefono': paciente.codusuario.telefono
+            }
+        except AttributeError:
+            return None
+    
+    def get_odontologo_info(self, obj):
+        """Información del odontólogo."""
+        try:
+            odontologo = obj.plan_tratamiento.cododontologo
+            return {
+                'id': odontologo.codigo,
+                'nombre': f"Dr(a). {odontologo.codusuario.nombre} {odontologo.codusuario.apellido}",
+                'especialidad': odontologo.especialidad
+            }
+        except AttributeError:
+            return None
+    
+    def get_permite_aceptacion_parcial(self, obj):
+        """Si algún ítem permite pago parcial (aceptación por ítems)."""
+        return obj.items_presupuesto.filter(permite_pago_parcial=True).exists()
+
+
+class AceptarPresupuestoDigitalSerializer(serializers.Serializer):
+    """
+    Serializer para validar el payload de aceptación de presupuesto.
+    
+    Valida la firma digital, items aceptados y otros datos necesarios
+    para registrar la aceptación del paciente.
+    
+    SP3-T003: Aceptar presupuesto digital por paciente
+    """
+    tipo_aceptacion = serializers.ChoiceField(
+        choices=['Total', 'Parcial'],
+        required=True,
+        help_text="Tipo de aceptación: Total (todos los ítems) o Parcial (ítems seleccionados)"
+    )
+    
+    items_aceptados = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=False,
+        help_text="Lista de IDs de ItemPresupuestoDigital aceptados (requerido si tipo=Parcial)"
+    )
+    
+    firma_digital = serializers.JSONField(
+        required=True,
+        help_text="Objeto JSON con datos de firma electrónica del paciente"
+    )
+    
+    notas = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text="Comentarios o condiciones del paciente al aceptar"
+    )
+    
+    def validate_tipo_aceptacion(self, value):
+        """Valida que el tipo de aceptación sea válido."""
+        if value not in ['Total', 'Parcial']:
+            raise serializers.ValidationError(
+                "Tipo de aceptación debe ser 'Total' o 'Parcial'"
+            )
+        return value
+    
+    def validate_items_aceptados(self, value):
+        """Valida que los IDs de items sean válidos."""
+        if value:
+            # Verificar que sean enteros positivos
+            for item_id in value:
+                if not isinstance(item_id, int) or item_id <= 0:
+                    raise serializers.ValidationError(
+                        f"ID de ítem inválido: {item_id}"
+                    )
+        return value
+    
+    def validate_firma_digital(self, value):
+        """Valida que la firma digital contenga los campos requeridos."""
+        required_fields = ['timestamp', 'user_id', 'consent_text', 'signature_hash']
+        
+        for field in required_fields:
+            if field not in value:
+                raise serializers.ValidationError(
+                    f"Firma digital incompleta: falta campo '{field}'"
+                )
+        
+        # Validar timestamp
+        timestamp_str = value.get('timestamp')
+        try:
+            from django.utils.dateparse import parse_datetime
+            timestamp = parse_datetime(timestamp_str)
+            if not timestamp:
+                raise ValueError("Formato inválido")
+            
+            # No puede ser futuro
+            if timestamp > timezone.now():
+                raise serializers.ValidationError(
+                    "Timestamp de firma no puede ser futuro"
+                )
+        except (ValueError, TypeError) as e:
+            raise serializers.ValidationError(
+                f"Timestamp inválido en firma digital: {str(e)}"
+            )
+        
+        # Validar user_id
+        if not isinstance(value.get('user_id'), int):
+            raise serializers.ValidationError(
+                "user_id debe ser un entero"
+            )
+        
+        return value
+    
+    def validate(self, data):
+        """Validaciones cruzadas."""
+        tipo = data.get('tipo_aceptacion')
+        items = data.get('items_aceptados', [])
+        
+        # Si es Parcial, debe tener items
+        if tipo == 'Parcial':
+            if not items or len(items) == 0:
+                raise serializers.ValidationError({
+                    'items_aceptados': "Aceptación parcial requiere seleccionar al menos un ítem"
+                })
+        
+        # Si es Total, items debe estar vacío o no presente
+        if tipo == 'Total' and items:
+            raise serializers.ValidationError({
+                'items_aceptados': "Aceptación total no debe incluir items_aceptados"
+            })
+        
+        return data
+
+
+class AceptacionPresupuestoDigitalSerializer(serializers.ModelSerializer):
+    """
+    Serializer para el modelo de aceptación (registro de auditoría).
+    
+    Usado para lectura de registros de aceptación y generación de comprobantes.
+    
+    SP3-T003: Aceptar presupuesto digital por paciente
+    """
+    comprobante_id_str = serializers.SerializerMethodField()
+    presupuesto_codigo = serializers.SerializerMethodField()
+    presupuesto_codigo_corto = serializers.SerializerMethodField()
+    paciente_nombre_completo = serializers.SerializerMethodField()
+    tipo_aceptacion_display = serializers.CharField(
+        source='get_tipo_aceptacion_display',
+        read_only=True
+    )
+    items_aceptados_detalle = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = serializers.ModelSerializer.Meta.model if hasattr(serializers.ModelSerializer, 'Meta') else None
+        fields = [
+            'id',
+            'presupuesto_digital',
+            'presupuesto_codigo',
+            'presupuesto_codigo_corto',
+            'usuario_paciente',
+            'paciente_nombre_completo',
+            'empresa',
+            'fecha_aceptacion',
+            'tipo_aceptacion',
+            'tipo_aceptacion_display',
+            'items_aceptados',
+            'items_aceptados_detalle',
+            'firma_digital',
+            'ip_address',
+            'user_agent',
+            'comprobante_id',
+            'comprobante_id_str',
+            'comprobante_url',
+            'monto_subtotal',
+            'monto_descuento',
+            'monto_total_aceptado',
+            'notas_paciente',
+            'listo_para_pago',
+        ]
+        read_only_fields = [
+            'id',
+            'fecha_aceptacion',
+            'comprobante_id',
+            'comprobante_url',
+            'ip_address',
+            'user_agent',
+        ]
+    
+    def __init__(self, *args, **kwargs):
+        """Fix Meta.model dinamically."""
+        super().__init__(*args, **kwargs)
+        if not self.Meta.model:
+            from .models import AceptacionPresupuestoDigital
+            self.Meta.model = AceptacionPresupuestoDigital
+    
+    def get_comprobante_id_str(self, obj):
+        """Comprobante ID como string."""
+        return str(obj.comprobante_id)
+    
+    def get_presupuesto_codigo(self, obj):
+        """Código completo del presupuesto."""
+        return str(obj.presupuesto_digital.codigo_presupuesto)
+    
+    def get_presupuesto_codigo_corto(self, obj):
+        """Código corto del presupuesto (8 caracteres)."""
+        return obj.presupuesto_digital.codigo_presupuesto.hex[:8].upper()
+    
+    def get_paciente_nombre_completo(self, obj):
+        """Nombre completo del paciente."""
+        return f"{obj.usuario_paciente.nombre} {obj.usuario_paciente.apellido}"
+    
+    def get_items_aceptados_detalle(self, obj):
+        """Detalle de los ítems aceptados (si es aceptación parcial)."""
+        if obj.tipo_aceptacion == 'Total' or not obj.items_aceptados:
+            return []
+        
+        from .models import ItemPresupuestoDigital
+        items = ItemPresupuestoDigital.objects.filter(
+            id__in=obj.items_aceptados
+        ).select_related('item_plan__idservicio')
+        
+        return [
+            {
+                'id': item.id,
+                'servicio': item.item_plan.idservicio.nombre if item.item_plan.idservicio else 'N/A',
+                'precio_final': str(item.precio_final),
+            }
+            for item in items
+        ]

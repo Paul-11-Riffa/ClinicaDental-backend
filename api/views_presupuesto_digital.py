@@ -2,9 +2,11 @@
 """
 Views para la funcionalidad de generación de presupuestos digitales.
 SP3-T002: Generar presupuesto digital (web)
+SP3-T003: Aceptar presupuesto digital por paciente
 
 Permite emitir un presupuesto total o por tramos a partir de un plan aprobado.
 """
+import logging
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -15,11 +17,26 @@ from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 
+# Configurar logger
+logger = logging.getLogger(__name__)
+
+# SP3-T003 Fase 6: Permissions y throttling personalizados
+from .permissions_presupuesto import (
+    IsPacienteDelPresupuesto,
+    IsTenantMatch,
+    IsOdontologoDelPresupuesto,
+    CanViewPresupuesto,
+    AceptacionPresupuestoRateThrottle,
+    PresupuestoListRateThrottle,
+)
+
 from .models import (
     PresupuestoDigital,
     ItemPresupuestoDigital,
     Plandetratamiento,
     Bitacora,
+    AceptacionPresupuestoDigital,
+    Usuario,
 )
 from .serializers_presupuesto_digital import (
     ListarPresupuestosSerializer,
@@ -27,7 +44,11 @@ from .serializers_presupuesto_digital import (
     CrearPresupuestoSerializer,
     EmitirPresupuestoSerializer,
     ActualizarPresupuestoSerializer,
+    PresupuestoDigitalParaPacienteSerializer,
+    AceptarPresupuestoDigitalSerializer,
+    AceptacionPresupuestoDigitalSerializer,
 )
+
 
 
 class PresupuestoDigitalViewSet(viewsets.ModelViewSet):
@@ -45,12 +66,31 @@ class PresupuestoDigitalViewSet(viewsets.ModelViewSet):
     - POST /api/presupuestos-digitales/{id}/generar-pdf/ - Generar PDF del presupuesto
     - GET /api/presupuestos-digitales/planes-disponibles/ - Listar planes aprobados sin presupuesto
     """
-    permission_classes = [AllowAny]  # TODO: Cambiar a IsAuthenticated en producción
+    permission_classes = [AllowAny]  # Por defecto AllowAny, se sobrescribe en get_permissions()
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['estado', 'es_tramo', 'plan_tratamiento']
     search_fields = ['codigo_presupuesto', 'notas', 'terminos_condiciones']
     ordering_fields = ['fecha_emision', 'fecha_vigencia', 'total']
     ordering = ['-fecha_emision']
+    
+    def get_permissions(self):
+        """
+        Configura permisos según la acción.
+        
+        - retrieve (ver detalle): Requiere autenticación + CanViewPresupuesto
+        - list: AllowAny por ahora (TODO: cambiar a IsAuthenticated)
+        - create, update, partial_update, destroy: IsAuthenticated
+        - Acciones personalizadas: Cada una define sus propios permisos
+        """
+        if self.action == 'retrieve':
+            # Ver detalle de presupuesto: Solo paciente, odontólogo o admin
+            return [IsAuthenticated(), CanViewPresupuesto(), IsTenantMatch()]
+        elif self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsAuthenticated(), IsTenantMatch()]
+        else:
+            # Para list y otras acciones no especificadas
+            return [AllowAny()]
+
     
     def get_queryset(self):
         """Filtra presupuestos por empresa del tenant."""
@@ -570,3 +610,641 @@ class PresupuestoDigitalViewSet(viewsets.ModelViewSet):
                 'numero_tramo': presupuesto.numero_tramo,
             }
         })
+    
+    # =========================================================================
+    # ENDPOINTS PARA ACEPTACIÓN DE PRESUPUESTOS (SP3-T003)
+    # =========================================================================
+    
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path='mis-presupuestos',
+        permission_classes=[IsAuthenticated, IsTenantMatch],
+        throttle_classes=[PresupuestoListRateThrottle]
+    )
+    def mis_presupuestos(self, request):
+        """
+        Lista los presupuestos digitales del paciente autenticado.
+
+        Query params:
+        - estado_aceptacion: Filtrar por estado (Pendiente, Aceptado, Rechazado, Parcial)
+        - esta_vigente: true/false - Filtrar por vigencia
+        - plan_tratamiento: ID del plan
+
+        SP3-T003: Permite al paciente ver sus presupuestos disponibles
+        """
+        
+        try:
+            # Obtener el Usuario por el email del Django User autenticado
+            # El modelo Usuario NO tiene relación con Django User, se relaciona por email
+            email = request.user.email
+            
+            if not email:
+                logger.error(f"Django User {request.user.id} no tiene email")
+                return Response(
+                    {'error': 'El usuario autenticado no tiene email asociado.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            try:
+                usuario = Usuario.objects.get(correoelectronico=email, empresa=request.tenant)
+                logger.info(f"Usuario {usuario.codigo} - {usuario.nombre} solicita sus presupuestos")
+            except Usuario.DoesNotExist:
+                logger.error(f"No existe Usuario con email {email} en empresa {request.tenant}")
+                return Response(
+                    {
+                        'error': 'Usuario no encontrado',
+                        'detalle': f'No existe un usuario con el email {email} en esta clínica. Por favor contacte al administrador.'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Obtener presupuestos del paciente
+            queryset = PresupuestoDigital.objects.filter(
+                plan_tratamiento__codpaciente__codusuario=usuario,
+                empresa=request.tenant
+            ).select_related(
+                'plan_tratamiento',
+                'plan_tratamiento__codpaciente',
+                'plan_tratamiento__cododontologo',
+                'usuario_acepta'
+            ).prefetch_related('items_presupuesto')
+            
+            # Filtros opcionales
+            estado_aceptacion = request.query_params.get('estado_aceptacion')
+            if estado_aceptacion:
+                queryset = queryset.filter(estado_aceptacion=estado_aceptacion)
+            
+            esta_vigente = request.query_params.get('esta_vigente')
+            if esta_vigente is not None:
+                if esta_vigente.lower() == 'true':
+                    queryset = [p for p in queryset if p.esta_vigente()]
+                elif esta_vigente.lower() == 'false':
+                    queryset = [p for p in queryset if not p.esta_vigente()]
+            
+            plan_id = request.query_params.get('plan_tratamiento')
+            if plan_id:
+                queryset = queryset.filter(plan_tratamiento_id=plan_id)
+            
+            serializer = PresupuestoDigitalParaPacienteSerializer(
+                queryset,
+                many=True,
+                context={'request': request}
+            )
+            
+            logger.info(f"Retornando {len(serializer.data)} presupuestos para usuario {usuario.codigo}")
+            
+            return Response({
+                'count': len(serializer.data) if isinstance(queryset, list) else queryset.count(),
+                'results': serializer.data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error en mis_presupuestos: {str(e)}", exc_info=True)
+            return Response(
+                {'error': f'Error al obtener presupuestos: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(
+        detail=True,
+        methods=['get'],
+        url_path='puede-aceptar',
+        permission_classes=[IsAuthenticated, CanViewPresupuesto, IsTenantMatch]
+    )
+    def puede_aceptar(self, request, pk=None):
+        """
+        Verifica si el presupuesto puede ser aceptado por el paciente.
+        
+        Retorna:
+        - puede_aceptar: bool
+        - razones: lista de razones si no puede aceptar
+        - validaciones: detalle de cada validación
+        
+        SP3-T003: Pre-validación antes de mostrar UI de aceptación
+        """
+        presupuesto = self.get_object()
+        
+        # Obtener usuario usando el patrón correcto de email lookup
+        try:
+            usuario = Usuario.objects.get(
+                correoelectronico=request.user.email,
+                empresa=request.tenant
+            )
+            logger.info(f"puede_aceptar - Usuario encontrado: {usuario.codigo} - {usuario.nombre}")
+        except Usuario.DoesNotExist:
+            logger.error(f"puede_aceptar - Usuario no encontrado para email: {request.user.email}")
+            return Response({
+                'puede_aceptar': False,
+                'razones': ['Usuario no encontrado en el sistema'],
+                'validaciones': {
+                    'es_paciente_del_presupuesto': False,
+                    'presupuesto_emitido': False,
+                    'no_caducado': False,
+                    'no_aceptado_previamente': False,
+                    'no_rechazado': False,
+                },
+                'informacion': {}
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        validaciones = {
+            'es_paciente_del_presupuesto': False,
+            'presupuesto_emitido': False,
+            'no_caducado': False,
+            'no_aceptado_previamente': False,
+            'no_rechazado': False,
+        }
+        razones = []
+        
+        # Validación 1: Usuario es el paciente del presupuesto
+        try:
+            if presupuesto.plan_tratamiento and presupuesto.plan_tratamiento.codpaciente:
+                usuario_paciente = presupuesto.plan_tratamiento.codpaciente.codusuario
+                if usuario_paciente and usuario.codigo == usuario_paciente.codigo:
+                    validaciones['es_paciente_del_presupuesto'] = True
+                    logger.info(f"✅ Usuario {usuario.codigo} es el paciente del presupuesto")
+                else:
+                    razones.append("No eres el paciente de este presupuesto")
+                    logger.warning(f"❌ Usuario {usuario.codigo} NO es el paciente (paciente: {usuario_paciente.codigo if usuario_paciente else 'N/A'})")
+            else:
+                razones.append("Presupuesto sin paciente asociado")
+        except AttributeError as e:
+            razones.append("Error al verificar paciente")
+            logger.error(f"Error en validación de paciente: {e}")
+        
+        # Validación 2: Presupuesto está emitido
+        if presupuesto.estado == PresupuestoDigital.ESTADO_EMITIDO:
+            validaciones['presupuesto_emitido'] = True
+        else:
+            razones.append(f"Presupuesto debe estar emitido (estado actual: {presupuesto.estado})")
+        
+        # Validación 3: No caducado
+        if presupuesto.esta_vigente():
+            validaciones['no_caducado'] = True
+        else:
+            razones.append(f"Presupuesto caducado el {presupuesto.fecha_vigencia}")
+        
+        # Validación 4: No aceptado previamente
+        if presupuesto.estado_aceptacion != PresupuestoDigital.ESTADO_ACEPTACION_ACEPTADO:
+            validaciones['no_aceptado_previamente'] = True
+        else:
+            razones.append(f"Presupuesto ya aceptado el {presupuesto.fecha_aceptacion}")
+        
+        # Validación 5: No rechazado
+        if presupuesto.estado_aceptacion != PresupuestoDigital.ESTADO_ACEPTACION_RECHAZADO:
+            validaciones['no_rechazado'] = True
+        else:
+            razones.append("Presupuesto fue rechazado previamente")
+        
+        puede_aceptar = all(validaciones.values())
+        
+        return Response({
+            'puede_aceptar': puede_aceptar,
+            'razones': razones,
+            'validaciones': validaciones,
+            'informacion': {
+                'fecha_vigencia': presupuesto.fecha_vigencia,
+                'dias_restantes': (presupuesto.fecha_vigencia - timezone.now().date()).days if presupuesto.fecha_vigencia else None,
+                'permite_aceptacion_parcial': presupuesto.items_presupuesto.filter(permite_pago_parcial=True).exists(),
+                'items_total': presupuesto.items_presupuesto.count(),
+                'items_con_pago_parcial': presupuesto.items_presupuesto.filter(permite_pago_parcial=True).count(),
+            }
+        })
+    
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='aceptar',
+        permission_classes=[IsAuthenticated, IsPacienteDelPresupuesto, IsTenantMatch],
+        throttle_classes=[AceptacionPresupuestoRateThrottle]
+    )
+    @transaction.atomic
+    def aceptar_presupuesto(self, request, pk=None):
+        """
+        Acepta el presupuesto digital (total o parcialmente).
+        
+        Payload:
+        {
+            "tipo_aceptacion": "Total" | "Parcial",
+            "items_aceptados": [1, 2, 3],  // Solo si Parcial
+            "firma_digital": {
+                "timestamp": "2025-10-25T10:30:00Z",
+                "user_id": 123,
+                "signature_hash": "abc123...",
+                "consent_text": "Acepto términos...",
+            },
+            "notas": "Comentarios opcionales"
+        }
+        
+        SP3-T003: Endpoint principal de aceptación
+        """
+        presupuesto = self.get_object()
+        
+        # Obtener usuario usando el patrón correcto de email lookup
+        try:
+            usuario = Usuario.objects.get(
+                correoelectronico=request.user.email,
+                empresa=request.tenant
+            )
+            logger.info(f"aceptar_presupuesto - Usuario encontrado: {usuario.codigo} - {usuario.nombre}")
+        except Usuario.DoesNotExist:
+            logger.error(f"aceptar_presupuesto - Usuario no encontrado para email: {request.user.email}")
+            return Response(
+                {'error': 'Usuario no encontrado'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validar payload
+        serializer = AceptarPresupuestoDigitalSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        data = serializer.validated_data
+        tipo_aceptacion = data['tipo_aceptacion']
+        items_aceptados = data.get('items_aceptados', [])
+        firma_digital = data['firma_digital']
+        notas = data.get('notas', '')
+        
+        # VALIDACIÓN 1: Usuario es el paciente del presupuesto
+        try:
+            usuario_paciente = presupuesto.plan_tratamiento.codpaciente.codusuario
+            if usuario.codigo != usuario_paciente.codigo:
+                logger.warning(f"❌ Usuario {usuario.codigo} intentó aceptar presupuesto del paciente {usuario_paciente.codigo}")
+                return Response(
+                    {'error': 'No autorizado', 'detalle': 'No eres el paciente de este presupuesto'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            logger.info(f"✅ Usuario {usuario.codigo} validado como paciente del presupuesto")
+        except AttributeError as e:
+            logger.error(f"Error al verificar paciente: {e}")
+            return Response(
+                {'error': 'Error al verificar paciente'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # VALIDACIÓN 2: Presupuesto en estado válido para aceptar
+        if presupuesto.estado != PresupuestoDigital.ESTADO_EMITIDO:
+            return Response(
+                {'error': 'Estado inválido', 'detalle': f'Solo presupuestos emitidos pueden aceptarse (actual: {presupuesto.estado})'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # VALIDACIÓN 3: No caducado
+        if not presupuesto.esta_vigente():
+            return Response(
+                {'error': 'Presupuesto caducado', 'detalle': f'El presupuesto caducó el {presupuesto.fecha_vigencia}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # VALIDACIÓN 4: No aceptado previamente
+        if presupuesto.estado_aceptacion == PresupuestoDigital.ESTADO_ACEPTACION_ACEPTADO:
+            return Response(
+                {
+                    'error': 'Presupuesto ya aceptado',
+                    'detalle': f'Aceptado el {presupuesto.fecha_aceptacion}',
+                    'comprobante_url': presupuesto.comprobante_aceptacion_url
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # VALIDACIÓN 5: No rechazado
+        if presupuesto.estado_aceptacion == PresupuestoDigital.ESTADO_ACEPTACION_RECHAZADO:
+            return Response(
+                {'error': 'Presupuesto rechazado', 'detalle': 'Presupuesto fue rechazado previamente'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # VALIDACIÓN 6: Items válidos si es parcial
+        if tipo_aceptacion == 'Parcial':
+            items_presupuesto_ids = list(presupuesto.items_presupuesto.values_list('id', flat=True))
+            items_invalidos = set(items_aceptados) - set(items_presupuesto_ids)
+            if items_invalidos:
+                return Response(
+                    {'error': 'Items inválidos', 'detalle': f'Los siguientes items no pertenecen al presupuesto: {items_invalidos}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Verificar que permiten pago parcial
+            items_obj = ItemPresupuestoDigital.objects.filter(id__in=items_aceptados)
+            items_sin_pago_parcial = items_obj.filter(permite_pago_parcial=False)
+            if items_sin_pago_parcial.exists():
+                return Response(
+                    {'error': 'Items no permiten pago parcial', 'detalle': 'Algunos items seleccionados no permiten aceptación parcial'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Helper para obtener IP real del cliente
+        def get_client_ip(req):
+            """
+            Obtiene la IP real del cliente considerando proxies y balanceadores de carga.
+
+            Orden de prioridad:
+            1. X-Forwarded-For (proxies/balanceadores) - toma la primera IP de la cadena
+            2. X-Real-IP (nginx/proxy inverso)
+            3. REMOTE_ADDR (conexión directa)
+
+            Limpia espacios y valida que la IP no esté vacía.
+            """
+            # Intentar X-Forwarded-For (puede tener múltiples IPs: "client, proxy1, proxy2")
+            x_forwarded_for = req.META.get('HTTP_X_FORWARDED_FOR')
+            if x_forwarded_for:
+                # Tomar la primera IP (la del cliente original)
+                ip = x_forwarded_for.split(',')[0].strip()
+                if ip:
+                    return ip
+
+            # Intentar X-Real-IP (usado por nginx y otros proxies)
+            x_real_ip = req.META.get('HTTP_X_REAL_IP')
+            if x_real_ip:
+                ip = x_real_ip.strip()
+                if ip:
+                    return ip
+
+            # Fallback: dirección remota directa
+            remote_addr = req.META.get('REMOTE_ADDR', '').strip()
+            return remote_addr if remote_addr else 'unknown'
+        
+        # Helper para obtener User Agent
+        def get_user_agent(req):
+            return req.META.get('HTTP_USER_AGENT', '')
+        
+        # ACTUALIZACIÓN 1: Actualizar PresupuestoDigital
+        presupuesto.estado_aceptacion = (
+            PresupuestoDigital.ESTADO_ACEPTACION_ACEPTADO
+            if tipo_aceptacion == 'Total'
+            else PresupuestoDigital.ESTADO_ACEPTACION_PARCIAL
+        )
+        presupuesto.fecha_aceptacion = timezone.now()
+        presupuesto.usuario_acepta = usuario
+        presupuesto.tipo_aceptacion = tipo_aceptacion
+        presupuesto.es_editable = False  # BLOQUEAR EDICIÓN
+        presupuesto.save()
+        
+        # ACTUALIZACIÓN 2: Crear registro de auditoría
+        aceptacion = AceptacionPresupuestoDigital.objects.create(
+            presupuesto_digital=presupuesto,
+            usuario_paciente=usuario,
+            empresa=request.tenant,
+            tipo_aceptacion=tipo_aceptacion,
+            items_aceptados=items_aceptados if tipo_aceptacion == 'Parcial' else [],
+            firma_digital=firma_digital,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request),
+            monto_subtotal=presupuesto.subtotal,
+            monto_descuento=presupuesto.descuento,
+            monto_total_aceptado=presupuesto.total,
+            notas_paciente=notas,
+            listo_para_pago=True
+        )
+        
+        # ACTUALIZACIÓN 3: Generar comprobante PDF
+        try:
+            from .utils_comprobante_aceptacion import generar_comprobante_aceptacion
+            comprobante_url = generar_comprobante_aceptacion(aceptacion)
+            aceptacion.comprobante_url = comprobante_url
+            aceptacion.save(update_fields=['comprobante_url'])
+            
+            presupuesto.comprobante_aceptacion_url = comprobante_url
+            presupuesto.save(update_fields=['comprobante_aceptacion_url'])
+        except Exception as e:
+            # Log error pero no fallar la aceptación
+            logger.error(f"Error generando comprobante PDF: {str(e)}")
+        
+        # ACTUALIZACIÓN 4: Registrar en Bitácora
+        Bitacora.objects.create(
+            empresa=request.tenant,
+            usuario=usuario,
+            accion='ACEPTACION_PRESUPUESTO_DIGITAL',
+            tabla_afectada='presupuesto_digital',
+            registro_id=presupuesto.id,
+            valores_nuevos={
+                'comprobante_id': str(aceptacion.comprobante_id),
+                'tipo_aceptacion': tipo_aceptacion,
+                'monto_total': str(presupuesto.total),
+                'items_count': len(items_aceptados) if tipo_aceptacion == 'Parcial' else 'todos',
+                'estado_aceptacion': presupuesto.estado_aceptacion,
+            },
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request)
+        )
+        
+        # TODO: ACTUALIZACIÓN 5: Enviar notificaciones (Fase 5)
+        # Las signals se encargarán de esto
+        
+        # Serializar respuesta
+        aceptacion_serializer = AceptacionPresupuestoDigitalSerializer(aceptacion)
+        presupuesto_serializer = PresupuestoDigitalParaPacienteSerializer(
+            presupuesto,
+            context={'request': request}
+        )
+        
+        return Response({
+            'success': True,
+            'mensaje': 'Presupuesto aceptado exitosamente',
+            'aceptacion': aceptacion_serializer.data,
+            'presupuesto': presupuesto_serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    @action(
+        detail=True,
+        methods=['get'],
+        url_path='historial-aceptaciones',
+        permission_classes=[IsAuthenticated, CanViewPresupuesto, IsTenantMatch]
+    )
+    def historial_aceptaciones(self, request, pk=None):
+        """
+        Lista el historial de aceptaciones de un presupuesto.
+        
+        Útil para aceptaciones parciales incrementales donde el paciente
+        va aceptando ítems en diferentes momentos.
+        
+        SP3-T003: Auditoría de aceptaciones
+        """
+        presupuesto = self.get_object()
+        aceptaciones = AceptacionPresupuestoDigital.objects.filter(
+            presupuesto_digital=presupuesto
+        ).order_by('-fecha_aceptacion')
+        
+        serializer = AceptacionPresupuestoDigitalSerializer(aceptaciones, many=True)
+
+        return Response({
+            'presupuesto_id': presupuesto.id,
+            'codigo_presupuesto': presupuesto.codigo_presupuesto.hex[:8].upper(),
+            'total_aceptaciones': aceptaciones.count(),
+            'aceptaciones': serializer.data
+        })
+
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path='aceptaciones/(?P<aceptacion_id>[0-9]+)/descargar-comprobante',
+        permission_classes=[IsAuthenticated, CanViewPresupuesto, IsTenantMatch]
+    )
+    def descargar_comprobante(self, request, aceptacion_id=None):
+        """
+        Descarga el comprobante PDF de una aceptación de presupuesto.
+
+        GET /api/presupuestos-digitales/aceptaciones/{aceptacion_id}/descargar-comprobante/
+
+        Permisos:
+        - Paciente que aceptó el presupuesto
+        - Odontólogo del plan de tratamiento
+        - Administrador de la empresa
+
+        Retorna:
+        - Archivo PDF para descarga directa
+
+        SP3-T003: Endpoint para descarga de comprobante de aceptación
+        """
+        from django.http import HttpResponse, FileResponse
+        import os
+
+        try:
+            # Buscar la aceptación
+            aceptacion = get_object_or_404(
+                AceptacionPresupuestoDigital,
+                id=aceptacion_id,
+                empresa=request.tenant
+            )
+
+            # Verificar permisos de acceso
+            presupuesto = aceptacion.presupuesto_digital
+            usuario = getattr(request.user, 'usuario', None)
+
+            # Validar que el usuario tenga permiso de ver este comprobante
+            es_paciente = False
+            es_odontologo = False
+            es_admin = request.user.is_staff or request.user.is_superuser
+
+            if usuario:
+                try:
+                    # Verificar si es el paciente
+                    if presupuesto.plan_tratamiento.codpaciente.codusuario == usuario:
+                        es_paciente = True
+
+                    # Verificar si es el odontólogo
+                    if presupuesto.plan_tratamiento.cododontologo.codusuario == usuario:
+                        es_odontologo = True
+
+                    # Verificar si es admin de la empresa
+                    if hasattr(usuario, 'idtipousuario') and usuario.idtipousuario:
+                        tipo_usuario = usuario.idtipousuario
+                        if hasattr(tipo_usuario, 'rol') and 'admin' in tipo_usuario.rol.lower():
+                            es_admin = True
+                except AttributeError:
+                    pass
+
+            if not (es_paciente or es_odontologo or es_admin):
+                logger.warning(
+                    f"Usuario {usuario.codigo if usuario else 'Unknown'} "
+                    f"intentó descargar comprobante {aceptacion_id} sin permisos"
+                )
+                return Response(
+                    {'error': 'No tienes permiso para descargar este comprobante.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # Verificar si el comprobante ya existe
+            if aceptacion.comprobante_url:
+                # Intentar servir el archivo existente
+                try:
+                    from django.core.files.storage import default_storage
+
+                    # Extraer la ruta del archivo de la URL
+                    # Ejemplo: http://domain/media/comprobantes/file.pdf -> comprobantes/file.pdf
+                    file_path = aceptacion.comprobante_url.split('/media/')[-1] if '/media/' in aceptacion.comprobante_url else None
+
+                    if file_path and default_storage.exists(file_path):
+                        # Abrir el archivo
+                        file = default_storage.open(file_path, 'rb')
+
+                        # Retornar como descarga
+                        response = FileResponse(
+                            file,
+                            content_type='application/pdf'
+                        )
+                        response['Content-Disposition'] = (
+                            f'attachment; filename="comprobante_{aceptacion.comprobante_id}.pdf"'
+                        )
+
+                        logger.info(
+                            f"Comprobante {aceptacion_id} descargado por usuario "
+                            f"{usuario.codigo if usuario else 'Unknown'}"
+                        )
+
+                        return response
+                    else:
+                        logger.warning(
+                            f"Comprobante {aceptacion_id} tiene URL pero archivo no existe: {file_path}"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"Error al servir comprobante existente {aceptacion_id}: {str(e)}"
+                    )
+
+            # Si no existe el comprobante o hubo error, generarlo ahora
+            logger.info(f"Generando comprobante para aceptación {aceptacion_id}")
+
+            try:
+                from .utils_comprobante_aceptacion import generar_comprobante_aceptacion
+                comprobante_url = generar_comprobante_aceptacion(aceptacion)
+
+                # Actualizar la aceptación con la URL del comprobante
+                aceptacion.comprobante_url = comprobante_url
+                aceptacion.save(update_fields=['comprobante_url'])
+
+                # También actualizar el presupuesto si no tiene
+                if not presupuesto.comprobante_aceptacion_url:
+                    presupuesto.comprobante_aceptacion_url = comprobante_url
+                    presupuesto.save(update_fields=['comprobante_aceptacion_url'])
+
+                # Ahora servir el archivo recién generado
+                from django.core.files.storage import default_storage
+
+                file_path = comprobante_url.split('/media/')[-1] if '/media/' in comprobante_url else None
+
+                if file_path and default_storage.exists(file_path):
+                    file = default_storage.open(file_path, 'rb')
+
+                    response = FileResponse(
+                        file,
+                        content_type='application/pdf'
+                    )
+                    response['Content-Disposition'] = (
+                        f'attachment; filename="comprobante_{aceptacion.comprobante_id}.pdf"'
+                    )
+
+                    logger.info(
+                        f"Comprobante {aceptacion_id} generado y descargado por usuario "
+                        f"{usuario.codigo if usuario else 'Unknown'}"
+                    )
+
+                    return response
+                else:
+                    logger.error(
+                        f"Comprobante generado pero archivo no encontrado: {file_path}"
+                    )
+                    return Response(
+                        {'error': 'Error al generar el comprobante. Intenta nuevamente.'},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"Error al generar comprobante para aceptación {aceptacion_id}: {str(e)}",
+                    exc_info=True
+                )
+                return Response(
+                    {'error': f'Error al generar el comprobante: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        except Exception as e:
+            logger.error(
+                f"Error en descargar_comprobante para aceptación {aceptacion_id}: {str(e)}",
+                exc_info=True
+            )
+            return Response(
+                {'error': 'Error al descargar el comprobante. Verifica que la aceptación exista.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
