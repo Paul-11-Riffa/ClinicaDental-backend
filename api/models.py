@@ -462,6 +462,12 @@ class Plandetratamiento(models.Model):
         default=0,
         help_text="Subtotal calculado automáticamente sumando items activos."
     )
+    progreso_general = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Progreso general del plan (promedio de progreso de ítems activos). SP3-T008"
+    )
     
     # SP3-T003: Campos para aceptación de presupuestos
     fecha_vigencia = models.DateField(
@@ -798,11 +804,15 @@ class Itemplandetratamiento(models.Model):
     def esta_activo(self):
         """Verifica si el item está activo (habilita agenda y cuenta para total)."""
         return self.estado_item == self.ESTADO_ACTIVO
-    
+
     def esta_cancelado(self):
         """Verifica si el item fue cancelado (no impacta total)."""
         return self.estado_item == self.ESTADO_CANCELADO
-    
+
+    def esta_completado(self):
+        """Verifica si el item está completado."""
+        return self.estado_item == self.ESTADO_COMPLETADO
+
     def puede_editarse(self):
         """Verifica si el item puede editarse (plan debe estar en borrador)."""
         return self.idplantratamiento.puede_editarse()
@@ -827,6 +837,259 @@ class Itemplandetratamiento(models.Model):
             raise ValueError("Solo items activos pueden marcarse como completados.")
         self.estado_item = self.ESTADO_COMPLETADO
         self.save(update_fields=['estado_item'])
+
+
+class SesionTratamiento(models.Model):
+    """
+    Sesión de avance/procedimiento clínico realizado sobre un ítem del plan de tratamiento.
+    Implementa SP3-T008: Registrar procedimiento clínico (web)
+    
+    Representa una sesión específica donde se trabaja en un ítem del plan,
+    registrando el avance, acciones realizadas, evidencias y notas.
+    """
+    # Campos principales
+    item_plan = models.ForeignKey(
+        Itemplandetratamiento,
+        on_delete=models.CASCADE,
+        related_name='sesiones',
+        help_text="Ítem del plan de tratamiento sobre el que se realiza esta sesión"
+    )
+    consulta = models.ForeignKey(
+        'Consulta',
+        on_delete=models.CASCADE,
+        related_name='sesiones_tratamiento',
+        help_text="Consulta en la que se realizó esta sesión"
+    )
+    fecha_sesion = models.DateField(
+        help_text="Fecha en que se realizó la sesión"
+    )
+    hora_inicio = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="Hora de inicio de la sesión"
+    )
+    duracion_minutos = models.PositiveIntegerField(
+        help_text="Duración de la sesión en minutos"
+    )
+    
+    # Progreso y estado
+    progreso_anterior = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Progreso del ítem antes de esta sesión (0-100%)"
+    )
+    progreso_actual = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        help_text="Progreso del ítem después de esta sesión (0-100%)"
+    )
+    
+    # Detalles de la sesión
+    acciones_realizadas = models.TextField(
+        help_text="Descripción detallada de las acciones/procedimientos realizados en esta sesión"
+    )
+    notas_sesion = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Notas adicionales, observaciones o comentarios sobre la sesión"
+    )
+    complicaciones = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Registro de complicaciones o situaciones inesperadas durante la sesión"
+    )
+    
+    # Evidencias y documentación
+    evidencias = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Lista de URLs de evidencias (fotos, radiografías, etc.) asociadas a esta sesión"
+    )
+    
+    # Control y auditoría
+    usuario_registro = models.ForeignKey(
+        Usuario,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='sesiones_registradas',
+        help_text="Usuario (odontólogo/recepcionista) que registró esta sesión"
+    )
+    fecha_registro = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Fecha y hora en que se registró esta sesión en el sistema"
+    )
+    fecha_modificacion = models.DateTimeField(
+        auto_now=True,
+        help_text="Última fecha de modificación de la sesión"
+    )
+    
+    # Multi-tenancy
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='sesiones_tratamiento',
+        null=True,
+        blank=True
+    )
+    
+    class Meta:
+        db_table = 'sesion_tratamiento'
+        ordering = ['-fecha_sesion', '-hora_inicio']
+        verbose_name = 'Sesión de Tratamiento'
+        verbose_name_plural = 'Sesiones de Tratamiento'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['consulta', 'item_plan'],
+                name='unique_sesion_por_consulta_item',
+                violation_error_message="Ya existe una sesión registrada para este ítem en esta consulta."
+            ),
+            models.CheckConstraint(
+                check=models.Q(progreso_actual__gte=0) & models.Q(progreso_actual__lte=100),
+                name='sesion_progreso_actual_valido',
+                violation_error_message="El progreso debe estar entre 0 y 100%."
+            ),
+            models.CheckConstraint(
+                check=models.Q(progreso_anterior__gte=0) & models.Q(progreso_anterior__lte=100),
+                name='sesion_progreso_anterior_valido',
+                violation_error_message="El progreso anterior debe estar entre 0 y 100%."
+            ),
+            models.CheckConstraint(
+                check=models.Q(duracion_minutos__gt=0),
+                name='sesion_duracion_positiva',
+                violation_error_message="La duración debe ser mayor a 0 minutos."
+            )
+        ]
+        indexes = [
+            models.Index(fields=['item_plan', 'fecha_sesion']),
+            models.Index(fields=['consulta']),
+            models.Index(fields=['empresa', 'fecha_sesion']),
+        ]
+    
+    def __str__(self):
+        return f"Sesión {self.id} - {self.item_plan} ({self.fecha_sesion})"
+    
+    def clean(self):
+        """Validaciones adicionales antes de guardar."""
+        from django.core.exceptions import ValidationError
+        
+        # Validar que el progreso actual sea mayor o igual al anterior
+        if self.progreso_actual < self.progreso_anterior:
+            raise ValidationError({
+                'progreso_actual': 'El progreso actual no puede ser menor al progreso anterior.'
+            })
+        
+        # Validar que el ítem no esté cancelado o completado
+        if self.item_plan.esta_cancelado():
+            raise ValidationError({
+                'item_plan': 'No se pueden registrar sesiones sobre ítems cancelados.'
+            })
+        
+        # Si el progreso es 100%, el ítem debe marcarse como completado
+        if self.progreso_actual >= 100 and self.item_plan.estado_item != Itemplandetratamiento.ESTADO_COMPLETADO:
+            # Auto-marcar como completado
+            self.item_plan.estado_item = Itemplandetratamiento.ESTADO_COMPLETADO
+            self.item_plan.save(update_fields=['estado_item'])
+    
+    def save(self, *args, **kwargs):
+        # Ejecutar validaciones
+        self.clean()
+        
+        # Si es nueva sesión, obtener el progreso anterior del ítem
+        if not self.pk:
+            sesiones_anteriores = SesionTratamiento.objects.filter(
+                item_plan=self.item_plan
+            ).order_by('-fecha_sesion', '-hora_inicio')
+            
+            if sesiones_anteriores.exists():
+                self.progreso_anterior = sesiones_anteriores.first().progreso_actual
+            else:
+                self.progreso_anterior = 0
+        
+        super().save(*args, **kwargs)
+        
+        # Después de guardar, recalcular el progreso del plan
+        self.recalcular_progreso_plan()
+    
+    def recalcular_progreso_plan(self):
+        """
+        Recalcula el progreso general del plan de tratamiento.
+        El progreso del plan es el promedio del progreso de todos sus ítems activos.
+        """
+        plan = self.item_plan.idplantratamiento
+        items_activos = plan.itemplandetratamiento_set.filter(
+            estado_item__in=[
+                Itemplandetratamiento.ESTADO_ACTIVO,
+                Itemplandetratamiento.ESTADO_COMPLETADO
+            ]
+        )
+        
+        if items_activos.count() == 0:
+            return
+        
+        # Calcular progreso promedio
+        total_progreso = 0
+        for item in items_activos:
+            # Obtener última sesión del ítem
+            ultima_sesion = SesionTratamiento.objects.filter(
+                item_plan=item
+            ).order_by('-fecha_sesion', '-hora_inicio').first()
+            
+            if ultima_sesion:
+                total_progreso += float(ultima_sesion.progreso_actual)
+            else:
+                total_progreso += 0  # Sin sesiones = 0% progreso
+        
+        progreso_promedio = total_progreso / items_activos.count()
+        
+        # Actualizar progreso del plan si existe el campo
+        if hasattr(plan, 'progreso_general'):
+            plan.progreso_general = round(progreso_promedio, 2)
+            plan.save(update_fields=['progreso_general'])
+        
+        # Verificar si todos los ítems están completados
+        self.verificar_plan_completado()
+    
+    def verificar_plan_completado(self):
+        """
+        Verifica si todos los ítems activos del plan están completados.
+        Si es así, crea una entrada automática en el historial clínico.
+        """
+        plan = self.item_plan.idplantratamiento
+        items_activos = plan.itemplandetratamiento_set.filter(
+            estado_item__in=[
+                Itemplandetratamiento.ESTADO_ACTIVO,
+                Itemplandetratamiento.ESTADO_COMPLETADO
+            ]
+        )
+        
+        items_completados = items_activos.filter(
+            estado_item=Itemplandetratamiento.ESTADO_COMPLETADO
+        )
+        
+        # Si todos los ítems activos están completados
+        if items_activos.count() > 0 and items_activos.count() == items_completados.count():
+            # Verificar si ya existe una entrada en historial para este plan
+            from .models import Historialclinico
+
+            historial_existe = Historialclinico.objects.filter(
+                pacientecodigo=plan.codpaciente,
+                motivoconsulta__contains=f"Plan de Tratamiento #{plan.id}"
+            ).exists()
+            
+            if not historial_existe:
+                # Crear entrada en historial clínico
+                servicios_realizados = ", ".join([item.idservicio.nombre for item in items_completados])
+                Historialclinico.objects.create(
+                    pacientecodigo=plan.codpaciente,
+                    motivoconsulta=f"Plan de Tratamiento #{plan.id} - Completado",
+                    diagnostico=f"Tratamiento completado exitosamente. Total de procedimientos realizados: {items_completados.count()}. Servicios: {servicios_realizados}",
+                    empresa=self.empresa
+                )
+    
+    def get_incremento_progreso(self):
+        """Retorna el incremento de progreso en esta sesión."""
+        return float(self.progreso_actual - self.progreso_anterior)
 
 
 class Factura(models.Model):
@@ -1654,3 +1917,136 @@ class AceptacionPresupuestoDigital(models.Model):
     def get_comprobante_url_publica(self):
         """URL pública para verificar el comprobante."""
         return f"/api/verificar-comprobante/{self.comprobante_id}/"
+
+
+# +++ MODELO EVIDENCIA (SP3-T008 FASE 5) +++
+def evidencia_upload_path(instance, filename):
+    """
+    Genera ruta única para evidencias:
+    evidencias/2025/10/27/<uuid>_<filename>
+    """
+    import os
+    from django.utils.text import slugify
+    from datetime import datetime
+    
+    ext = filename.split('.')[-1]
+    name = os.path.splitext(filename)[0]
+    name = slugify(name)[:50]  # Sanitizar nombre
+    filename_safe = f"{uuid.uuid4().hex[:8]}_{name}.{ext.lower()}"
+    
+    # Usar la fecha actual si fecha_subida no está disponible
+    fecha = instance.fecha_subida if hasattr(instance, 'fecha_subida') and instance.fecha_subida else datetime.now()
+    
+    return os.path.join(
+        'evidencias',
+        str(fecha.year),
+        str(fecha.month),
+        str(fecha.day),
+        filename_safe
+    )
+
+
+class Evidencia(models.Model):
+    """
+    Modelo para gestionar evidencias (fotos, radiografías, PDFs) 
+    subidas en las sesiones de tratamiento.
+    
+    Multi-tenancy: Filtrado por empresa.
+    """
+    TIPO_CHOICES = [
+        ('evidencia_sesion', 'Evidencia de Sesión'),
+        ('radiografia', 'Radiografía'),
+        ('foto_clinica', 'Foto Clínica'),
+        ('documento', 'Documento'),
+    ]
+    
+    # Archivo
+    archivo = models.FileField(
+        upload_to=evidencia_upload_path,
+        max_length=500,
+        help_text="Archivo subido (imagen o PDF)"
+    )
+    nombre_original = models.CharField(
+        max_length=255,
+        help_text="Nombre original del archivo"
+    )
+    tipo = models.CharField(
+        max_length=50,
+        default='evidencia_sesion',
+        choices=TIPO_CHOICES,
+        help_text="Tipo de evidencia"
+    )
+    
+    # Metadatos del archivo
+    mimetype = models.CharField(
+        max_length=100,
+        help_text="MIME type del archivo (ej: image/jpeg)"
+    )
+    tamanio = models.IntegerField(
+        help_text='Tamaño en bytes'
+    )
+    
+    # Relaciones (Multi-tenancy)
+    usuario = models.ForeignKey(
+        Usuario,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='evidencias_subidas',
+        db_column='usuario_id',
+        help_text="Usuario que subió la evidencia"
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='evidencias',
+        help_text="Empresa (tenant) dueña de la evidencia"
+    )
+    
+    # Metadatos de auditoría
+    fecha_subida = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Fecha y hora de subida"
+    )
+    ip_subida = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        help_text="IP desde donde se subió el archivo"
+    )
+    
+    class Meta:
+        db_table = 'evidencias'
+        verbose_name = 'Evidencia'
+        verbose_name_plural = 'Evidencias'
+        ordering = ['-fecha_subida']
+        indexes = [
+            models.Index(fields=['empresa', '-fecha_subida']),
+            models.Index(fields=['usuario', '-fecha_subida']),
+            models.Index(fields=['tipo', '-fecha_subida']),
+        ]
+    
+    def __str__(self):
+        return f"{self.nombre_original} - {self.fecha_subida.strftime('%Y-%m-%d %H:%M')}"
+    
+    @property
+    def url(self):
+        """Retorna URL completa del archivo"""
+        if self.archivo:
+            return self.archivo.url
+        return None
+    
+    def delete(self, *args, **kwargs):
+        """Eliminar archivo físico al borrar registro"""
+        if self.archivo:
+            # Eliminar archivo físico del storage
+            self.archivo.delete(save=False)
+        super().delete(*args, **kwargs)
+    
+    def get_tamanio_legible(self):
+        """Retorna tamaño en formato legible (KB, MB)"""
+        size = self.tamanio
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024.0:
+                return f"{size:.2f} {unit}"
+            size /= 1024.0
+        return f"{size:.2f} TB"

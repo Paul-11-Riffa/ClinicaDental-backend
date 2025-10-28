@@ -2,7 +2,8 @@ from django.contrib import admin
 from django.apps import apps
 from .models import (
     Empresa, Usuario, Paciente, Odontologo, Recepcionista,
-    Consulta, Historialclinico, Bitacora, ComboServicio, ComboServicioDetalle
+    Consulta, Historialclinico, Bitacora, ComboServicio, ComboServicioDetalle,
+    SesionTratamiento, Evidencia
 )
 # Importar los admin sites personalizados
 from dental_clinic_backend.admin_sites import tenant_admin_site, public_admin_site
@@ -231,13 +232,121 @@ class ComboServicioAdmin(TenantFilteredAdmin):
     get_cantidad_servicios.short_description = 'Servicios'
 
 
+@admin.register(SesionTratamiento, site=tenant_admin_site)
+@admin.register(SesionTratamiento, site=public_admin_site)
+class SesionTratamientoAdmin(TenantFilteredAdmin):
+    """Admin para gestionar sesiones de tratamiento."""
+    list_display = ('id', 'get_paciente', 'get_servicio', 'fecha_sesion', 
+                    'duracion_minutos', 'get_progreso', 'get_incremento', 'usuario_registro')
+    list_filter = ('fecha_sesion', 'item_plan__idservicio__nombre', 'empresa')
+    search_fields = ('item_plan__idplantratamiento__codpaciente__codusuario__nombre',
+                     'item_plan__idservicio__nombre', 'acciones_realizadas')
+    readonly_fields = ('progreso_anterior', 'fecha_registro', 'fecha_modificacion')
+    
+    fieldsets = (
+        ('Información de la Sesión', {
+            'fields': ('item_plan', 'consulta', 'fecha_sesion', 'hora_inicio', 'duracion_minutos')
+        }),
+        ('Progreso', {
+            'fields': ('progreso_anterior', 'progreso_actual')
+        }),
+        ('Detalles del Procedimiento', {
+            'fields': ('acciones_realizadas', 'notas_sesion', 'complicaciones', 'evidencias')
+        }),
+        ('Control', {
+            'fields': ('usuario_registro', 'fecha_registro', 'fecha_modificacion', 'empresa'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def get_paciente(self, obj):
+        if obj.item_plan and obj.item_plan.idplantratamiento:
+            paciente = obj.item_plan.idplantratamiento.codpaciente
+            return f"{paciente.codusuario.nombre} {paciente.codusuario.apellidopat}"
+        return "-"
+    get_paciente.short_description = 'Paciente'
+    
+    def get_servicio(self, obj):
+        if obj.item_plan and obj.item_plan.idservicio:
+            return obj.item_plan.idservicio.nombre
+        return "-"
+    get_servicio.short_description = 'Servicio'
+    
+    def get_progreso(self, obj):
+        return f"{obj.progreso_actual}%"
+    get_progreso.short_description = 'Progreso Actual'
+    
+    def get_incremento(self, obj):
+        incremento = obj.get_incremento_progreso()
+        return f"+{incremento}%" if incremento > 0 else f"{incremento}%"
+    get_incremento.short_description = 'Incremento'
+
+
+@admin.register(Evidencia, site=tenant_admin_site)
+@admin.register(Evidencia, site=public_admin_site)
+class EvidenciaAdmin(TenantFilteredAdmin):
+    """
+    Admin para gestión de evidencias (archivos subidos).
+    SP3-T008 FASE 5
+    """
+    list_display = (
+        'id',
+        'nombre_original',
+        'tipo',
+        'get_tamanio_legible',
+        'get_usuario',
+        'fecha_subida',
+        'empresa'
+    )
+    list_filter = ('tipo', 'fecha_subida', 'empresa')
+    search_fields = ('nombre_original', 'usuario__nombre', 'usuario__apellido')
+    readonly_fields = (
+        'id',
+        'fecha_subida',
+        'tamanio',
+        'mimetype',
+        'ip_subida',
+        'get_archivo_url',
+        'get_tamanio_legible'
+    )
+    
+    fieldsets = (
+        ('Información del Archivo', {
+            'fields': ('archivo', 'get_archivo_url', 'nombre_original', 'tipo')
+        }),
+        ('Metadatos', {
+            'fields': ('mimetype', 'tamanio', 'get_tamanio_legible')
+        }),
+        ('Auditoría', {
+            'fields': ('usuario', 'empresa', 'fecha_subida', 'ip_subida')
+        })
+    )
+    
+    def get_usuario(self, obj):
+        if obj.usuario:
+            return f"{obj.usuario.nombre} {obj.usuario.apellido}"
+        return "-"
+    get_usuario.short_description = 'Usuario'
+    
+    def get_tamanio_legible(self, obj):
+        return obj.get_tamanio_legible()
+    get_tamanio_legible.short_description = 'Tamaño'
+    
+    def get_archivo_url(self, obj):
+        if obj.archivo:
+            return obj.url
+        return "-"
+    get_archivo_url.short_description = 'URL del Archivo'
+
+
 # Registrar el resto de modelos automáticamente
 app_config = apps.get_app_config("api")
 
 for model in app_config.get_models():
     # Saltar los que ya registramos manualmente
     if model in [Empresa, Usuario, Paciente, Odontologo, Recepcionista, 
-                 Consulta, Historialclinico, Bitacora, ComboServicio, ComboServicioDetalle]:
+                 Consulta, Historialclinico, Bitacora, ComboServicio, ComboServicioDetalle,
+                 SesionTratamiento, Evidencia]:
         continue
     
     try:
