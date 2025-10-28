@@ -17,7 +17,9 @@
       "Bash(git add:*)",
       "Bash(del nul)",
       "Bash(rm:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(dir:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []

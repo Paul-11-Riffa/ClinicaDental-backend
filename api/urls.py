@@ -46,6 +46,13 @@ router.register(r"presupuestos-digitales", PresupuestoDigitalViewSet, basename="
 from .views_combos import ComboServicioViewSet
 router.register(r"combos-servicios", ComboServicioViewSet, basename="combos-servicios")
 
+# Sesiones de Tratamiento (SP3-T008)
+from .views_sesiones import SesionTratamientoViewSet
+router.register(r"sesiones-tratamiento", SesionTratamientoViewSet, basename="sesiones-tratamiento")
+
+# Upload de Evidencias (SP3-T008 FASE 5)
+from .views_evidencias import upload_evidencia, delete_evidencia, listar_evidencias
+
 # Creación de Usuarios (Admin)
 router.register(r"crear-usuario", views_user_creation.CrearUsuarioViewSet, basename="crear-usuario")
 
@@ -87,6 +94,11 @@ urlpatterns = [
     path("notificaciones/", include("api.urls_notifications")),
     path("auth/user/settings/", views_auth.auth_user_settings_update),
     path("auth/user/notifications/", views_auth.notification_preferences),
+
+    # Upload de Evidencias (SP3-T008 FASE 5)
+    path("upload/evidencias/", upload_evidencia, name="upload-evidencia"),
+    path("upload/evidencias/<int:evidencia_id>/", delete_evidencia, name="delete-evidencia"),
+    path("evidencias/", listar_evidencias, name="listar-evidencias"),
 
     # Rutas de los ViewSets
     path("", include(router.urls)),

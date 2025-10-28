@@ -245,9 +245,25 @@ USE_TZ = True
 # ------------------------------------
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-MEDIA_URLS = "/media/"
+MEDIA_URL = "/media/"  # Corregido: era MEDIA_URLS
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+# ------------------------------------
+# Configuración de Upload de Archivos
+# ------------------------------------
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB
+
+# Tipos de archivo permitidos para evidencias
+ALLOWED_UPLOAD_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf']
+ALLOWED_UPLOAD_MIMETYPES = [
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'application/pdf'
+]
 
 # ------------------------------------
 # DRF - CORREGIDO
