@@ -1,0 +1,94 @@
+INFO 2025-10-29 18:00:59,837 signals_consulta 13844 11428 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 18:00:59,839 signals_presupuesto_digital 13844 11428 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 18:00:59,840 signals_flujo_clinico 13844 11428 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 18:00:59,841 signals 13844 11428 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 18:00:59,841 apps 13844 11428 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 18:01:00,440 signals_consulta 22196 2664 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 18:01:00,444 signals_presupuesto_digital 22196 2664 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 18:01:00,445 signals_flujo_clinico 22196 2664 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 18:01:00,446 signals 22196 2664 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 18:01:00,447 apps 22196 2664 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 18:01:00,470 autoreload 22196 2664 Watching for file changes with StatReloader
+INFO 2025-10-29 18:01:01,611 permissions_presupuesto 22196 2664 \u2705 Permissions y throttling classes para presupuestos digitales cargadas
+INFO 2025-10-29 18:12:36,401 autoreload 22196 2664 C:\Users\paulr\PycharmProjects\sitwo-project-backend-master\api\serializers.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+October 29, 2025 - 18:01:03
+Django version 5.2.7, using settings 'dental_clinic_backend.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+INFO 2025-10-29 18:12:37,366 signals_consulta 21384 5344 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 18:12:37,370 signals_presupuesto_digital 21384 5344 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 18:12:37,371 signals_flujo_clinico 21384 5344 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 18:12:37,372 signals 21384 5344 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 18:12:37,372 apps 21384 5344 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 18:12:37,394 autoreload 21384 5344 Watching for file changes with StatReloader
+INFO 2025-10-29 18:12:38,393 permissions_presupuesto 21384 5344 \u2705 Permissions y throttling classes para presupuestos digitales cargadas
+WARNING 2025-10-29 18:15:09,070 middleware_tenant 21384 1864 [TenantMiddleware] Subdominio 'norte' no encontrado o inactivo
+INFO 2025-10-29 18:15:09,071 middleware_routing 21384 1864 [TenantRoutingMiddleware] No tenant -> using urlconf_public
+INFO 2025-10-29 18:15:09,502 basehttp 21384 1864 "GET /api/tipos-consulta/ HTTP/1.1" 200 3792
+DEBUG 2025-10-29 18:19:21,730 middleware_tenant 21384 12160 [TenantMiddleware] Tenant resuelto: SmileStudio (subdomain: smilestudio)
+INFO 2025-10-29 18:19:21,731 middleware_routing 21384 12160 [TenantRoutingMiddleware] Tenant detected: SmileStudio -> using urlconf_tenant
+DEBUG 2025-10-29 18:19:21,735 middleware_tenant 21384 9400 [TenantMiddleware] Tenant resuelto: SmileStudio (subdomain: smilestudio)
+INFO 2025-10-29 18:19:21,735 middleware_routing 21384 9400 [TenantRoutingMiddleware] Tenant detected: SmileStudio -> using urlconf_tenant
+INFO 2025-10-29 18:19:22,178 basehttp 21384 9400 "GET /api/auth/user/ HTTP/1.1" 200 281
+INFO 2025-10-29 18:19:22,320 basehttp 21384 12160 "GET /api/tipos-consulta/ HTTP/1.1" 200 2218
+DEBUG 2025-10-29 18:19:23,375 middleware_tenant 21384 9400 [TenantMiddleware] Tenant resuelto: SmileStudio (subdomain: smilestudio)
+INFO 2025-10-29 18:19:23,376 middleware_routing 21384 9400 [TenantRoutingMiddleware] Tenant detected: SmileStudio -> using urlconf_tenant
+DEBUG 2025-10-29 18:19:23,511 middleware_tenant 21384 12160 [TenantMiddleware] Tenant resuelto: SmileStudio (subdomain: smilestudio)
+INFO 2025-10-29 18:19:23,511 middleware_routing 21384 12160 [TenantRoutingMiddleware] Tenant detected: SmileStudio -> using urlconf_tenant
+INFO 2025-10-29 18:19:23,860 basehttp 21384 9400 "GET /api/auth/user/ HTTP/1.1" 200 281
+INFO 2025-10-29 18:19:24,143 basehttp 21384 12160 "GET /api/tipos-consulta/ HTTP/1.1" 200 2218
+DEBUG 2025-10-29 18:19:25,019 middleware_tenant 21384 12160 [TenantMiddleware] Ruta pública detectada: /api/auth/csrf/ - Saltando validación de tenant
+INFO 2025-10-29 18:19:25,019 middleware_routing 21384 12160 [TenantRoutingMiddleware] No tenant -> using urlconf_public
+INFO 2025-10-29 18:19:25,021 basehttp 21384 12160 "GET /api/auth/csrf/ HTTP/1.1" 200 28
+DEBUG 2025-10-29 18:19:25,033 middleware_tenant 21384 12160 [TenantMiddleware] Ruta pública detectada: /api/auth/login/ - Saltando validación de tenant
+INFO 2025-10-29 18:19:25,033 middleware_routing 21384 12160 [TenantRoutingMiddleware] No tenant -> using urlconf_public
+INFO 2025-10-29 18:19:25,033 views_auth 21384 12160 \U0001f510 Petición de login recibida - IP: 127.0.0.1
+INFO 2025-10-29 18:19:25,034 views_auth 21384 12160 \U0001f4e7 Intento de login para: rimberty.uagd@gmail.com
+INFO 2025-10-29 18:19:27,064 views_auth 21384 12160 \u2705 Usuario Django autenticado: rimberty.uagd@gmail.com
+INFO 2025-10-29 18:19:27,064 views_auth 21384 12160 \U0001f3e2 Tenant detectado: None
+INFO 2025-10-29 18:19:27,227 views_auth 21384 12160 \u2705 Usuario encontrado en BD: Joaquin Chumacero (código: 6)
+INFO 2025-10-29 18:19:27,728 views_auth 21384 12160 \U0001f3ab Token generado para: rimberty.uagd@gmail.com
+INFO 2025-10-29 18:19:28,028 views_auth 21384 12160 \u2705 Login exitoso para: rimberty.uagd@gmail.com - Subtipo: paciente
+INFO 2025-10-29 18:19:28,029 basehttp 21384 12160 "POST /api/auth/login/ HTTP/1.1" 200 369
+DEBUG 2025-10-29 18:19:29,396 middleware_tenant 21384 12160 [TenantMiddleware] Tenant resuelto: SmileStudio (subdomain: smilestudio)
+INFO 2025-10-29 18:19:29,396 middleware_routing 21384 12160 [TenantRoutingMiddleware] Tenant detected: SmileStudio -> using urlconf_tenant
+INFO 2025-10-29 18:19:29,844 basehttp 21384 12160 "GET /api/consultas/ HTTP/1.1" 200 4252
+DEBUG 2025-10-29 18:19:30,300 middleware_tenant 21384 9400 [TenantMiddleware] Tenant resuelto: SmileStudio (subdomain: smilestudio)
+INFO 2025-10-29 18:19:30,301 middleware_routing 21384 9400 [TenantRoutingMiddleware] Tenant detected: SmileStudio -> using urlconf_tenant
+DEBUG 2025-10-29 18:19:30,339 middleware_tenant 21384 11624 [TenantMiddleware] Tenant resuelto: SmileStudio (subdomain: smilestudio)
+INFO 2025-10-29 18:19:30,339 middleware_routing 21384 11624 [TenantRoutingMiddleware] Tenant detected: SmileStudio -> using urlconf_tenant
+INFO 2025-10-29 18:19:30,829 basehttp 21384 9400 "GET /api/consultas/?estado=pendiente&agendado_por_web=true HTTP/1.1" 200 4252
+INFO 2025-10-29 18:19:30,998 basehttp 21384 11624 "GET /api/tipos-consulta/ HTTP/1.1" 200 2218
+DEBUG 2025-10-29 18:19:31,195 middleware_tenant 21384 12160 [TenantMiddleware] Tenant resuelto: SmileStudio (subdomain: smilestudio)
+INFO 2025-10-29 18:19:31,195 middleware_routing 21384 12160 [TenantRoutingMiddleware] Tenant detected: SmileStudio -> using urlconf_tenant
+INFO 2025-10-29 18:19:31,651 basehttp 21384 12160 "GET /api/consultas/ HTTP/1.1" 200 4252
+DEBUG 2025-10-29 18:19:32,057 middleware_tenant 21384 11716 [TenantMiddleware] Tenant resuelto: SmileStudio (subdomain: smilestudio)
+INFO 2025-10-29 18:19:32,057 middleware_routing 21384 11716 [TenantRoutingMiddleware] Tenant detected: SmileStudio -> using urlconf_tenant
+DEBUG 2025-10-29 18:19:32,195 middleware_tenant 21384 11624 [TenantMiddleware] Tenant resuelto: SmileStudio (subdomain: smilestudio)
+INFO 2025-10-29 18:19:32,195 middleware_routing 21384 11624 [TenantRoutingMiddleware] Tenant detected: SmileStudio -> using urlconf_tenant
+INFO 2025-10-29 18:19:32,507 basehttp 21384 11716 "GET /api/consultas/?estado=pendiente&agendado_por_web=true HTTP/1.1" 200 4252
+INFO 2025-10-29 18:19:32,773 basehttp 21384 11624 "GET /api/tipos-consulta/ HTTP/1.1" 200 2218
+INFO 2025-10-29 18:21:33,425 autoreload 21384 5344 C:\Users\paulr\PycharmProjects\sitwo-project-backend-master\api\serializers.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+October 29, 2025 - 18:12:40
+Django version 5.2.7, using settings 'dental_clinic_backend.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+INFO 2025-10-29 18:21:34,628 signals_consulta 17896 3024 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 18:21:34,632 signals_presupuesto_digital 17896 3024 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 18:21:34,632 signals_flujo_clinico 17896 3024 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 18:21:34,633 signals 17896 3024 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 18:21:34,633 apps 17896 3024 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 18:21:34,659 autoreload 17896 3024 Watching for file changes with StatReloader
+INFO 2025-10-29 18:21:35,755 permissions_presupuesto 17896 3024 \u2705 Permissions y throttling classes para presupuestos digitales cargadas

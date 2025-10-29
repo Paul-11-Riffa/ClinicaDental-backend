@@ -1,0 +1,138 @@
+INFO 2025-10-29 17:45:47,931 signals_consulta 16792 13580 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 17:45:47,931 signals_presupuesto_digital 16792 13580 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 17:45:47,931 signals_flujo_clinico 16792 13580 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 17:45:47,931 signals 16792 13580 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 17:45:47,931 apps 16792 13580 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 17:45:48,438 signals_consulta 22548 7164 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 17:45:48,438 signals_presupuesto_digital 22548 7164 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 17:45:48,438 signals_flujo_clinico 22548 7164 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 17:45:48,438 signals 22548 7164 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 17:45:48,438 apps 22548 7164 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 17:45:48,467 autoreload 22548 7164 Watching for file changes with StatReloader
+INFO 2025-10-29 17:45:49,378 permissions_presupuesto 22548 7164 \u2705 Permissions y throttling classes para presupuestos digitales cargadas
+INFO 2025-10-29 17:56:48,840 autoreload 22548 7164 C:\Users\paulr\PycharmProjects\sitwo-project-backend-master\api\views.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+October 29, 2025 - 17:45:51
+Django version 5.2.7, using settings 'dental_clinic_backend.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+INFO 2025-10-29 17:56:49,684 signals_consulta 21792 1416 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 17:56:49,686 signals_presupuesto_digital 21792 1416 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 17:56:49,687 signals_flujo_clinico 21792 1416 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 17:56:49,687 signals 21792 1416 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 17:56:49,687 apps 21792 1416 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 17:56:49,709 autoreload 21792 1416 Watching for file changes with StatReloader
+INFO 2025-10-29 17:56:50,666 permissions_presupuesto 21792 1416 \u2705 Permissions y throttling classes para presupuestos digitales cargadas
+INFO 2025-10-29 17:57:05,324 autoreload 21792 1416 C:\Users\paulr\PycharmProjects\sitwo-project-backend-master\api\views.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+October 29, 2025 - 17:56:53
+Django version 5.2.7, using settings 'dental_clinic_backend.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+INFO 2025-10-29 17:57:06,242 signals_consulta 23156 16012 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 17:57:06,244 signals_presupuesto_digital 23156 16012 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 17:57:06,245 signals_flujo_clinico 23156 16012 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 17:57:06,246 signals 23156 16012 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 17:57:06,246 apps 23156 16012 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 17:57:06,269 autoreload 23156 16012 Watching for file changes with StatReloader
+INFO 2025-10-29 17:57:07,197 permissions_presupuesto 23156 16012 \u2705 Permissions y throttling classes para presupuestos digitales cargadas
+INFO 2025-10-29 17:57:33,506 autoreload 23156 16012 C:\Users\paulr\PycharmProjects\sitwo-project-backend-master\api\views.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+October 29, 2025 - 17:57:09
+Django version 5.2.7, using settings 'dental_clinic_backend.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+INFO 2025-10-29 17:57:34,320 signals_consulta 2296 3328 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 17:57:34,322 signals_presupuesto_digital 2296 3328 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 17:57:34,323 signals_flujo_clinico 2296 3328 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 17:57:34,323 signals 2296 3328 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 17:57:34,323 apps 2296 3328 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 17:57:34,345 autoreload 2296 3328 Watching for file changes with StatReloader
+INFO 2025-10-29 17:57:35,235 permissions_presupuesto 2296 3328 \u2705 Permissions y throttling classes para presupuestos digitales cargadas
+INFO 2025-10-29 17:58:48,407 autoreload 2296 3328 C:\Users\paulr\PycharmProjects\sitwo-project-backend-master\api\views.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+October 29, 2025 - 17:57:37
+Django version 5.2.7, using settings 'dental_clinic_backend.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+INFO 2025-10-29 17:58:49,204 signals_consulta 21700 764 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 17:58:49,207 signals_presupuesto_digital 21700 764 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 17:58:49,207 signals_flujo_clinico 21700 764 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 17:58:49,208 signals 21700 764 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 17:58:49,208 apps 21700 764 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 17:58:49,228 autoreload 21700 764 Watching for file changes with StatReloader
+INFO 2025-10-29 17:58:50,125 permissions_presupuesto 21700 764 \u2705 Permissions y throttling classes para presupuestos digitales cargadas
+INFO 2025-10-29 17:59:00,526 autoreload 21700 764 C:\Users\paulr\PycharmProjects\sitwo-project-backend-master\api\views.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+October 29, 2025 - 17:58:52
+Django version 5.2.7, using settings 'dental_clinic_backend.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+INFO 2025-10-29 17:59:01,522 signals_consulta 19944 7004 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 17:59:01,526 signals_presupuesto_digital 19944 7004 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 17:59:01,527 signals_flujo_clinico 19944 7004 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 17:59:01,527 signals 19944 7004 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 17:59:01,528 apps 19944 7004 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 17:59:01,552 autoreload 19944 7004 Watching for file changes with StatReloader
+INFO 2025-10-29 17:59:02,438 permissions_presupuesto 19944 7004 \u2705 Permissions y throttling classes para presupuestos digitales cargadas
+INFO 2025-10-29 18:12:36,415 autoreload 19944 7004 C:\Users\paulr\PycharmProjects\sitwo-project-backend-master\api\serializers.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+October 29, 2025 - 17:59:04
+Django version 5.2.7, using settings 'dental_clinic_backend.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+INFO 2025-10-29 18:12:37,366 signals_consulta 21792 7012 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 18:12:37,371 signals_presupuesto_digital 21792 7012 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 18:12:37,371 signals_flujo_clinico 21792 7012 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 18:12:37,373 signals 21792 7012 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 18:12:37,373 apps 21792 7012 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 18:12:37,394 autoreload 21792 7012 Watching for file changes with StatReloader
+INFO 2025-10-29 18:12:38,393 permissions_presupuesto 21792 7012 \u2705 Permissions y throttling classes para presupuestos digitales cargadas
+INFO 2025-10-29 18:21:33,369 autoreload 21792 7012 C:\Users\paulr\PycharmProjects\sitwo-project-backend-master\api\serializers.py changed, reloading.
+Performing system checks...
+
+System check identified no issues (0 silenced).
+October 29, 2025 - 18:12:40
+Django version 5.2.7, using settings 'dental_clinic_backend.settings'
+Starting development server at http://0.0.0.0:8000/
+Quit the server with CTRL-BREAK.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/5.2/howto/deployment/
+INFO 2025-10-29 18:21:34,601 signals_consulta 1036 11460 signals_consulta: hook activo sobre sender=Consulta (table=consulta)
+INFO 2025-10-29 18:21:34,605 signals_presupuesto_digital 1036 11460 \u2705 Signals de notificaciones de presupuesto digital registrados
+INFO 2025-10-29 18:21:34,606 signals_flujo_clinico 1036 11460 \u2705 Signals de flujo clínico registrados
+INFO 2025-10-29 18:21:34,607 signals 1036 11460 NoShowPolicies: señales conectadas para api.Consulta (pre_save, campo idestadoconsulta).
+INFO 2025-10-29 18:21:34,607 apps 1036 11460 NoShowPolicies: módulo de señales importado en ready().
+INFO 2025-10-29 18:21:34,633 autoreload 1036 11460 Watching for file changes with StatReloader
+INFO 2025-10-29 18:21:35,729 permissions_presupuesto 1036 11460 \u2705 Permissions y throttling classes para presupuestos digitales cargadas

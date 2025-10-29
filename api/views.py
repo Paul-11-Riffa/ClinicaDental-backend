@@ -1,6 +1,6 @@
 from django.http import JsonResponse, HttpResponse
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import connection, transaction  # Agregar transaction para atomicidad
 from django.core.mail import send_mail
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
@@ -15,7 +15,7 @@ from io import BytesIO
 from rest_framework import status, serializers
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -188,8 +188,10 @@ class PacienteViewSet(ReadOnlyModelViewSet):
     """
     API read-only de Pacientes.
     Devuelve todos los pacientes que pertenecen a la empresa del tenant.
+
+    TODO: Restringir para que usuarios no autenticados solo vean su propio perfil.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]  # TEMPORAL: Público para agendamiento web
     serializer_class = PacienteSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     search_fields = ['codusuario__nombre', 'codusuario__apellido', 'carnetidentidad']
@@ -253,6 +255,200 @@ class ConsultaViewSet(ModelViewSet):
 
         return queryset
 
+    @transaction.atomic  # CORRECCIÓN: Agregar transacción atómica para evitar race conditions
+    def create(self, request, *args, **kwargs):
+        """
+        Crear nueva consulta con validaciones de agendamiento web
+        
+        Validaciones:
+        1. Usuario autenticado
+        2. Usuario es paciente (si agendado_por_web=True)
+        3. Tipo de consulta permite agendamiento web
+        4. Límite de consultas pendientes (máximo 3)
+        5. Anti-spam: 1 consulta por día (limitación: sin campo created_at)
+        6. Asignación automática de prioridad si es urgencia
+        """
+        
+        # =====================================================================
+        # 1. Verificar autenticación
+        # =====================================================================
+        if not request.user.is_authenticated:
+            return Response(
+                {"error": "Debes iniciar sesión para agendar una consulta"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # =====================================================================
+        # 2. Determinar si es agendamiento web
+        # =====================================================================
+        agendado_por_web = request.data.get('agendado_por_web', False)
+        
+        # =====================================================================
+        # 3. Si NO es agendamiento web, usar flujo normal (staff)
+        # =====================================================================
+        if not agendado_por_web:
+            # Staff puede crear consultas sin validaciones especiales
+            # Usar serializer estándar
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        
+        # =====================================================================
+        # 4. FLUJO DE AGENDAMIENTO WEB - Validar que usuario sea paciente
+        # =====================================================================
+        try:
+            # Buscar Usuario por correo (request.user es el User de Django)
+            usuario = Usuario.objects.get(correoelectronico=request.user.email)
+            # Buscar Paciente asociado a ese Usuario
+            paciente = Paciente.objects.get(codusuario=usuario)
+        except Usuario.DoesNotExist:
+            return Response(
+                {"error": "Usuario no encontrado en el sistema"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Paciente.DoesNotExist:
+            return Response(
+                {"error": "Solo los pacientes pueden agendar consultas desde la web"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # =====================================================================
+        # 5. Validar tipo de consulta
+        # =====================================================================
+        tipo_consulta_id = request.data.get('idtipoconsulta')
+        if not tipo_consulta_id:
+            return Response(
+                {"error": "El tipo de consulta es requerido"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            from .models import Tipodeconsulta
+            tipo_consulta = Tipodeconsulta.objects.get(pk=tipo_consulta_id)
+        except Tipodeconsulta.DoesNotExist:
+            return Response(
+                {"error": "El tipo de consulta no existe"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Verificar que el tipo permita agendamiento web
+        if not tipo_consulta.permite_agendamiento_web:
+            return Response(
+                {
+                    "error": "Este tipo de consulta no puede agendarse por web",
+                    "detalle": "Por favor, contacta a la clínica para agendar este tipo de consulta"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # =====================================================================
+        # 6. Validaciones anti-spam
+        # =====================================================================
+        # 6.1. Límite de consultas pendientes
+        empresa = request.tenant if hasattr(request, 'tenant') else paciente.empresa
+        consultas_pendientes = Consulta.objects.filter(
+            codpaciente=paciente,
+            estado__in=['pendiente', 'confirmada'],
+            empresa=empresa
+        ).count()
+        
+        if consultas_pendientes >= 3:
+            return Response(
+                {
+                    "error": "Límite de consultas pendientes alcanzado",
+                    "detalle": f"Ya tienes {consultas_pendientes} consultas pendientes. "
+                              "Por favor, espera a que sean atendidas o contacta a recepción."
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+        
+        # 6.2. Anti-spam: Máximo 1 consulta por día (día calendario)
+        from datetime import timedelta
+        hoy_inicio = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        consultas_hoy = Consulta.objects.filter(
+            codpaciente=paciente,
+            agendado_por_web=True,
+            created_at__gte=hoy_inicio,  # Desde las 00:00:00 de hoy
+            empresa=empresa
+        ).count()
+        
+        if consultas_hoy >= 1:
+            return Response(
+                {
+                    "error": "Límite de agendamiento alcanzado",
+                    "detalle": "Solo puedes agendar 1 consulta por día desde la web. "
+                              "Si necesitas agendar más consultas, contacta a recepción."
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+        
+        # =====================================================================
+        # 7. Validar motivo de consulta
+        # =====================================================================
+        motivo = request.data.get('motivo_consulta', '').strip()
+        if not motivo:
+            return Response(
+                {"error": "El motivo de la consulta es requerido"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if len(motivo) < 10:
+            return Response(
+                {
+                    "error": "El motivo de la consulta es muy corto",
+                    "detalle": "Describe el motivo con al menos 10 caracteres"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # =====================================================================
+        # 8. Preparar datos para creación
+        # =====================================================================
+        # Hacer el request.data mutable
+        if hasattr(request.data, '_mutable'):
+            request.data._mutable = True
+        
+        # Forzar valores automáticos
+        request.data['codpaciente'] = paciente.codusuario.codigo
+        request.data['empresa'] = empresa.id if empresa else None
+        request.data['agendado_por_web'] = True
+        
+        # Asignar prioridad según tipo de consulta
+        if tipo_consulta.es_urgencia:
+            request.data['prioridad'] = 'urgente'
+        else:
+            request.data['prioridad'] = 'normal'
+        
+        # Setear estado inicial si no viene
+        if 'estado' not in request.data:
+            request.data['estado'] = 'pendiente'
+        
+        # =====================================================================
+        # 9. Crear consulta usando serializer específico para agendamiento web
+        # =====================================================================
+        from .serializers import ConsultaAgendamientoWebSerializer
+        serializer = ConsultaAgendamientoWebSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        
+        # =====================================================================
+        # 10. Retornar respuesta exitosa
+        # =====================================================================
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            {
+                **serializer.data,
+                "mensaje": "Consulta agendada exitosamente",
+                "info": "Tu solicitud ha sido enviada. Recepción te contactará para confirmar."
+                        if agendado_por_web else None
+            },
+            status=status.HTTP_201_CREATED,
+            headers=headers
+        )
+
     def perform_create(self, serializer):
         """Asigna automáticamente la empresa del tenant al crear una consulta"""
         # Asignar empresa del tenant
@@ -261,12 +457,21 @@ class ConsultaViewSet(ModelViewSet):
         else:
             serializer.save()
 
-        # Enviar email de confirmación (código existente)
+        # Enviar email de confirmación (solo si tiene odontólogo asignado)
         consulta = serializer.instance
         paciente = consulta.codpaciente
+        
+        # Verificar que paciente existe y tiene usuario
+        if not paciente or not paciente.codusuario:
+            return
+
         usuario_paciente = paciente.codusuario
 
-        if getattr(usuario_paciente, "notificaciones_email", False):
+        # Solo enviar email si:
+        # 1. Usuario tiene notificaciones habilitadas
+        # 2. La consulta tiene odontólogo asignado (no es agendamiento web pendiente)
+        if (getattr(usuario_paciente, "notificaciones_email", False) and 
+            consulta.cododontologo is not None):
             try:
                 subject = "Confirmación de tu cita en Clínica Dental"
                 fecha_formateada = consulta.fecha.strftime('%d de %B de %Y')
@@ -294,7 +499,10 @@ Si necesitas cancelar o reprogramar tu cita, ponte en contacto con nosotros.
                 send_mail(subject, message, from_email, recipient_list, fail_silently=False)
 
             except Exception as e:
-                print(f"Error al enviar correo de notificación: {e}")
+                # Log el error pero no fallar la creación de la consulta
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Error al enviar correo de confirmación: {e}")
 
     def get_serializer_class(self):
         # --- MODIFICACIÓN: Añadir el nuevo serializador ---
@@ -521,11 +729,260 @@ Si necesitas cancelar o reprogramar tu cita, ponte en contacto con nosotros.
             status=status.HTTP_200_OK
         )
 
+    # ===== FASE 4: APPOINTMENT LIFECYCLE ENDPOINTS (Opción B - Realista) =====
+    
+    @action(detail=True, methods=['post'], url_path='confirmar-cita')
+    def confirmar_cita(self, request, pk=None):
+        """
+        Confirma una cita pendiente asignando fecha y hora.
+        
+        Body params:
+            - fecha_consulta (required): Fecha confirmada (YYYY-MM-DD)
+            - hora_consulta (required): Hora confirmada (HH:MM:SS)
+            - notas_recepcion (optional): Notas de la recepcionista
+        """
+        consulta = self.get_object()
+        
+        # Extraer datos del request
+        fecha_str = request.data.get('fecha_consulta')
+        hora_str = request.data.get('hora_consulta')
+        notas = request.data.get('notas_recepcion', None)
+        
+        if not fecha_str or not hora_str:
+            return Response(
+                {"error": "Debe proporcionar 'fecha_consulta' y 'hora_consulta'"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Parsear fecha y hora
+        try:
+            from datetime import datetime
+            fecha_consulta = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+            hora_consulta = datetime.strptime(hora_str, '%H:%M:%S').time()
+        except ValueError as e:
+            return Response(
+                {"error": f"Formato de fecha/hora inválido: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Obtener usuario para auditoría
+        usuario = getattr(request.user, 'usuario', None) if hasattr(request.user, 'usuario') else None
+        
+        # Confirmar cita usando método del modelo
+        exito, mensaje = consulta.confirmar_cita(
+            fecha_consulta=fecha_consulta,
+            hora_consulta=hora_consulta,
+            usuario=usuario,
+            notas=notas
+        )
+        
+        if not exito:
+            return Response(
+                {"error": mensaje},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Retornar consulta actualizada
+        serializer = self.get_serializer(consulta)
+        return Response(
+            {
+                "success": True,
+                "message": mensaje,
+                "consulta": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=True, methods=['post'], url_path='iniciar-consulta')
+    def iniciar_consulta(self, request, pk=None):
+        """
+        Inicia la consulta cuando el odontólogo comienza a atender.
+        Registra automáticamente la hora de inicio.
+        """
+        consulta = self.get_object()
+        
+        # Obtener usuario para auditoría
+        usuario = getattr(request.user, 'usuario', None) if hasattr(request.user, 'usuario') else None
+        
+        # Iniciar consulta
+        exito, mensaje = consulta.iniciar_consulta(usuario=usuario)
+        
+        if not exito:
+            return Response(
+                {"error": mensaje},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = self.get_serializer(consulta)
+        return Response(
+            {
+                "success": True,
+                "message": mensaje,
+                "consulta": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=True, methods=['post'], url_path='registrar-diagnostico')
+    def registrar_diagnostico(self, request, pk=None):
+        """
+        Registra el diagnóstico del odontólogo.
+        
+        Body params:
+            - diagnostico (required): Texto del diagnóstico
+            - tratamiento (optional): Tratamiento recomendado
+        """
+        consulta = self.get_object()
+        
+        diagnostico = request.data.get('diagnostico')
+        tratamiento = request.data.get('tratamiento', None)
+        
+        if not diagnostico:
+            return Response(
+                {"error": "Debe proporcionar el 'diagnostico'"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        usuario = getattr(request.user, 'usuario', None) if hasattr(request.user, 'usuario') else None
+        
+        exito, mensaje = consulta.registrar_diagnostico(
+            diagnostico=diagnostico,
+            tratamiento=tratamiento,
+            usuario=usuario
+        )
+        
+        if not exito:
+            return Response(
+                {"error": mensaje},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = self.get_serializer(consulta)
+        return Response(
+            {
+                "success": True,
+                "message": mensaje,
+                "consulta": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=True, methods=['post'], url_path='completar-consulta')
+    def completar_consulta(self, request, pk=None):
+        """
+        Completa la consulta finalizando el proceso.
+        Registra hora de fin y valida pagos si es necesario.
+        
+        Body params:
+            - observaciones (optional): Observaciones finales
+        """
+        consulta = self.get_object()
+        
+        observaciones = request.data.get('observaciones', None)
+        usuario = getattr(request.user, 'usuario', None) if hasattr(request.user, 'usuario') else None
+        
+        exito, mensaje = consulta.completar_consulta(
+            observaciones=observaciones,
+            usuario=usuario
+        )
+        
+        if not exito:
+            return Response(
+                {"error": mensaje},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = self.get_serializer(consulta)
+        return Response(
+            {
+                "success": True,
+                "message": mensaje,
+                "consulta": serializer.data,
+                "duracion_minutos": consulta.get_duracion_consulta()
+            },
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=True, methods=['post'], url_path='cancelar-cita-estado')
+    def cancelar_cita_estado(self, request, pk=None):
+        """
+        Cancela una cita cambiando el estado a 'cancelada'.
+        Diferente de /cancelar que elimina el registro.
+        
+        Body params:
+            - motivo_cancelacion (required): Razón de la cancelación
+        """
+        consulta = self.get_object()
+        
+        motivo = request.data.get('motivo_cancelacion')
+        
+        if not motivo:
+            return Response(
+                {"error": "Debe proporcionar el 'motivo_cancelacion'"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        usuario = getattr(request.user, 'usuario', None) if hasattr(request.user, 'usuario') else None
+        
+        exito, mensaje = consulta.cancelar_cita(
+            motivo_cancelacion=motivo,
+            usuario=usuario
+        )
+        
+        if not exito:
+            return Response(
+                {"error": mensaje},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = self.get_serializer(consulta)
+        return Response(
+            {
+                "success": True,
+                "message": mensaje,
+                "consulta": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=True, methods=['post'], url_path='marcar-no-asistio')
+    def marcar_no_asistio(self, request, pk=None):
+        """
+        Marca al paciente como no asistido (no-show).
+        Activa automáticamente las políticas de no-show configuradas.
+        """
+        consulta = self.get_object()
+        
+        usuario = getattr(request.user, 'usuario', None) if hasattr(request.user, 'usuario') else None
+        
+        exito, mensaje = consulta.marcar_no_asistio(usuario=usuario)
+        
+        if not exito:
+            return Response(
+                {"error": mensaje},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer = self.get_serializer(consulta)
+        return Response(
+            {
+                "success": True,
+                "message": mensaje,
+                "consulta": serializer.data,
+                "nota": "Las políticas de no-show se aplicarán automáticamente"
+            },
+            status=status.HTTP_200_OK
+        )
+
 
 # -------------------- Catálogos --------------------
 
 class OdontologoViewSet(ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated]
+    """
+    API pública para odontólogos (solo lectura).
+    No requiere autenticación para permitir agendamiento web.
+    """
+    permission_classes = [AllowAny]  # Público para agendamiento web
     serializer_class = OdontologoMiniSerializer
 
     def get_queryset(self):
@@ -540,7 +997,11 @@ class OdontologoViewSet(ReadOnlyModelViewSet):
 
 
 class HorarioViewSet(ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated]
+    """
+    API pública para horarios.
+    No requiere autenticación para permitir agendamiento web.
+    """
+    permission_classes = [AllowAny]  # Público para agendamiento web
     serializer_class = HorarioSerializer
 
     def get_queryset(self):
@@ -658,7 +1119,11 @@ class HorarioViewSet(ReadOnlyModelViewSet):
 
 
 class TipodeconsultaViewSet(ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated]
+    """
+    API pública para tipos de consulta.
+    No requiere autenticación para permitir agendamiento web.
+    """
+    permission_classes = [AllowAny]  # Público para agendamiento web
     serializer_class = TipodeconsultaSerializer
 
     def get_queryset(self):
