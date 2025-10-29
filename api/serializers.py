@@ -63,9 +63,25 @@ class HorarioSerializer(serializers.ModelSerializer):
 
 
 class TipodeconsultaSerializer(serializers.ModelSerializer):
+    """
+    Serializer para tipos de consulta.
+    Incluye campos para agendamiento web.
+    """
+    tipo = serializers.CharField(source='nombreconsulta', read_only=True)
+    descripcion = serializers.CharField(default='', read_only=True)
+
     class Meta:
         model = Tipodeconsulta
-        fields = ("id", "nombreconsulta")
+        fields = (
+            "id",
+            "tipo",
+            "descripcion",
+            "nombreconsulta",
+            "permite_agendamiento_web",
+            "requiere_aprobacion",
+            "es_urgencia",
+            "duracion_estimada"
+        )
 
 
 class EstadodeconsultaSerializer(serializers.ModelSerializer):
@@ -180,10 +196,65 @@ class ConsultaSerializer(serializers.ModelSerializer):
     idhorario = HorarioSerializer(read_only=True)
     idtipoconsulta = TipodeconsultaSerializer(read_only=True)
     idestadoconsulta = EstadodeconsultaSerializer(read_only=True)
-
+    
+    # Campos calculados para el flujo de appointment lifecycle
+    duracion_real = serializers.SerializerMethodField(read_only=True)
+    tiempo_espera = serializers.SerializerMethodField(read_only=True)
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+    
     class Meta:
         model = Consulta
         fields = "__all__"
+    
+    def get_duracion_real(self, obj):
+        """Retorna la duración real de la consulta en minutos"""
+        return obj.get_duracion_consulta()
+    
+    def get_tiempo_espera(self, obj):
+        """Retorna el tiempo de espera del paciente en minutos"""
+        return obj.get_tiempo_espera()
+
+
+class ConsultaAgendamientoWebSerializer(serializers.ModelSerializer):
+    """
+    Serializer específico para agendamiento web de consultas por pacientes.
+    
+    Diferencias con ConsultaSerializer estándar:
+    - cododontologo, codrecepcionista, idhorario son opcionales (se asignan después por staff)
+    - codpaciente se asigna automáticamente del usuario autenticado
+    - empresa se asigna automáticamente del tenant o paciente
+    - agendado_por_web se fuerza a True
+    - prioridad se asigna automáticamente según tipo de consulta
+    """
+    
+    class Meta:
+        model = Consulta
+        fields = '__all__'
+        extra_kwargs = {
+            'cododontologo': {'required': False, 'allow_null': True},
+            'codrecepcionista': {'required': False, 'allow_null': True},
+            'idhorario': {'required': False, 'allow_null': True},
+            'codpaciente': {'required': False},  # Se asigna automáticamente
+            'empresa': {'required': False},  # Se asigna automáticamente
+            'agendado_por_web': {'required': False},  # Se fuerza a True
+            'prioridad': {'required': False},  # Se asigna automáticamente
+        }
+    
+    def validate(self, attrs):
+        """Validaciones adicionales para agendamiento web"""
+        # El campo motivo_consulta es requerido
+        if not attrs.get('motivo_consulta'):
+            raise serializers.ValidationError({
+                'motivo_consulta': 'El motivo de la consulta es requerido'
+            })
+        
+        # Validar longitud mínima del motivo
+        if len(attrs.get('motivo_consulta', '').strip()) < 10:
+            raise serializers.ValidationError({
+                'motivo_consulta': 'El motivo debe tener al menos 10 caracteres'
+            })
+        
+        return attrs
 
 
 class UpdateConsultaSerializer(serializers.ModelSerializer):

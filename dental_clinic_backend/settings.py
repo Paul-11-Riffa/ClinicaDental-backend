@@ -142,6 +142,7 @@ INSTALLED_APPS = [
     # App principal - contiene todos los modelos
     "api",            # App principal (Empresa, Usuario, Paciente, Consulta, etc)
     "no_show_policies", # Políticas de no-show
+    "chatbot",        # Chatbot Odontológico con OpenAI
     "whitenoise.runserver_nostatic",
     # Apps modularizadas - COMENTADAS TEMPORALMENTE (duplican tablas)
     # "tenancy",          # Gestión de empresas y multi-tenancy
@@ -333,17 +334,46 @@ ONESIGNAL_APP_ID = ""  # Agrega tu OneSignal App ID aquí
 ONESIGNAL_REST_API_KEY = ""  # Agrega tu OneSignal REST API Key aquí
 
 # ------------------------------------
-# Stripe (Pagos SaaS - Opcional)
+# Stripe (Pagos en Línea)
 # ------------------------------------
 STRIPE_PUBLIC_KEY = os.environ.get('STRIPE_PUBLIC_KEY')
 STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY')
-STRIPE_PRICE_ID = os.environ.get('STRIPE_PRICE_ID')
+STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
 
+# Configuración de Stripe para pagos de tratamientos (SP3-T009)
+STRIPE_ENABLED = bool(STRIPE_SECRET_KEY)  # Solo habilitar si hay SECRET_KEY
+STRIPE_DEFAULT_CURRENCY = os.environ.get('STRIPE_CURRENCY', 'BOB')  # Bolivianos
+STRIPE_PAYMENT_METHOD_TYPES = ['card']  # Métodos de pago aceptados
+STRIPE_CAPTURE_METHOD = 'automatic'  # automatic o manual
+
+# Configuración legacy para SaaS (opcional)
+STRIPE_PRICE_ID = os.environ.get('STRIPE_PRICE_ID')
 STRIPE_PRICE_AMOUNT = 99  # Precio en USD del plan mensual (solo para mostrar al usuario)
-STRIPE_CURRENCY = "usd"  # Moneda
-STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')  # Agrega tu webhook secret de Stripe
-if not all([STRIPE_PUBLIC_KEY, STRIPE_SECRET_KEY, STRIPE_PRICE_ID]):
-    raise Exception("Configuración de Stripe incompleta en .env")
+
+# Advertencia si Stripe no está configurado (no es error fatal)
+if not STRIPE_ENABLED:
+    import warnings
+    warnings.warn("Stripe no está configurado. Los pagos en línea estarán deshabilitados.", UserWarning)
+
+# ------------------------------------
+# OpenAI Configuration (Chatbot)
+# ------------------------------------
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')
+OPENAI_ASSISTANT_ID = os.environ.get('OPENAI_ASSISTANT_ID', '')
+
+# Configuración del asistente (se puede ajustar según necesidades)
+OPENAI_ASSISTANT_NAME = "Asistente Dental"
+OPENAI_ASSISTANT_INSTRUCTIONS = """
+Eres un asistente virtual de una clínica dental. Tu función es:
+1. Recopilar información sobre síntomas dentales del paciente
+2. Evaluar el nivel de urgencia (alta, media, baja)
+3. Ayudar a agendar citas cuando el paciente lo solicite
+4. Proporcionar información general sobre cuidado dental
+
+Debes ser empático, profesional y claro. Siempre recuerda que NO eres un dentista 
+y NO puedes dar diagnósticos médicos, solo orientar y ayudar con el agendamiento.
+"""
 
 # Configuración de notificaciones por email
 DEFAULT_REMINDER_HOURS = 24

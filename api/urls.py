@@ -50,6 +50,16 @@ router.register(r"combos-servicios", ComboServicioViewSet, basename="combos-serv
 from .views_sesiones import SesionTratamientoViewSet
 router.register(r"sesiones-tratamiento", SesionTratamientoViewSet, basename="sesiones-tratamiento")
 
+# Flujo Clínico (PASO 3 - APIs)
+from .views_flujo_clinico import (
+    ConsultaFlujoClincoViewSet,
+    PlanTratamientoFlujoClincoViewSet,
+    ItemPlanTratamientoFlujoClincoViewSet
+)
+router.register(r"flujo-clinico/consultas", ConsultaFlujoClincoViewSet, basename="flujo-consultas")
+router.register(r"flujo-clinico/planes", PlanTratamientoFlujoClincoViewSet, basename="flujo-planes")
+router.register(r"flujo-clinico/items", ItemPlanTratamientoFlujoClincoViewSet, basename="flujo-items")
+
 # Upload de Evidencias (SP3-T008 FASE 5)
 from .views_evidencias import upload_evidencia, delete_evidencia, listar_evidencias
 
@@ -99,6 +109,9 @@ urlpatterns = [
     path("upload/evidencias/", upload_evidencia, name="upload-evidencia"),
     path("upload/evidencias/<int:evidencia_id>/", delete_evidencia, name="delete-evidencia"),
     path("evidencias/", listar_evidencias, name="listar-evidencias"),
+    
+    # Pagos en Línea (SP3-T009)
+    path("", include("api.urls_pagos")),
 
     # Rutas de los ViewSets
     path("", include(router.urls)),
@@ -111,4 +124,7 @@ urlpatterns = [
 
     # Notificaciones mobile
     path("mobile-notif/", include("api.notifications_mobile.urls")),
+    
+    # Chatbot
+    path("chatbot/", include("chatbot.urls")),
 ]

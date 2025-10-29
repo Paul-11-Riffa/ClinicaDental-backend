@@ -1,0 +1,23 @@
+{
+  "datos_existentes": {
+    "pacientes": 6,
+    "odontologos": 6,
+    "consultas": 5,
+    "planes": 9,
+    "items": 22,
+    "pagos": 0,
+    "presupuestos": 11
+  },
+  "relaciones": {
+    "planes_con_consulta": 0,
+    "pagos_plan": 0,
+    "pagos_consulta": 0,
+    "presupuestos_plan": 11
+  },
+  "problemas": [
+    "⚠️  Se usan Estados genéricos en lugar de estados específicos por modelo"
+  ],
+  "recomendaciones": [
+    "Migrar de FK(Estado) a CharField con choices específicos"
+  ]
+}
