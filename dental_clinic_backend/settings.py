@@ -43,9 +43,8 @@ ALLOWED_HOSTS = [
     "10.0.3.2",  # Emulador Android (alternativo)
     # Render deployment
     ".onrender.com",
+    ".clinicadentalservices.shop",  # Wildcard: acepta todos los subdominios
     "clinicadentalservices.shop",
-    "www.clinicadentalservices.shop",
-    "api.clinicadentalservices.shop",
 ]
 
 # En desarrollo, permitir también IPs de red local (192.168.*.*)
@@ -85,7 +84,9 @@ else:
         "https://este.notificct.dpdns.org",
         # Render/Namecheap production
         "https://clinicadentalservices.shop",
-        "https://www.clinicadentalservices.shop",
+        "https://norte.clinicadentalservices.shop",
+        "https://sur.clinicadentalservices.shop",
+        "https://centro.clinicadentalservices.shop",
         "https://api.clinicadentalservices.shop",
         # Vercel frontend
         "https://buy-dental-smile.vercel.app",
@@ -120,8 +121,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://sur.localhost:5173",
     # Render/Namecheap production
     "https://clinicadentalservices.shop",
-    "https://www.clinicadentalservices.shop",
-    "https://api.clinicadentalservices.shop",
+    "https://*.clinicadentalservices.shop",  # Wildcard para subdominios
     "https://*.onrender.com",
     "http://este.localhost:5173",
     # Multi-tenancy: Permitir subdominios en Django development server
