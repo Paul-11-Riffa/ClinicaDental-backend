@@ -82,12 +82,13 @@ else:
         "https://norte.notificct.dpdns.org",
         "https://sur.notificct.dpdns.org",
         "https://este.notificct.dpdns.org",
-        # Render/Namecheap production
-        "https://clinicadentalservices.shop",
-        "https://norte.clinicadentalservices.shop",
-        "https://sur.clinicadentalservices.shop",
-        "https://centro.clinicadentalservices.shop",
+        # Render/Namecheap production (3 dominios por plan Free)
+        # Backend general para admin y API
         "https://api.clinicadentalservices.shop",
+        # Clínicas con dominio dedicado
+        "https://uagrm.clinicadentalservices.shop",
+        "https://smilestudio.clinicadentalservices.shop",
+        # Resto de clínicas usan api.clinicadentalservices.shop con header X-Tenant-Subdomain
         # Vercel frontend
         "https://buy-dental-smile.vercel.app",
         "https://norte.localhost:5173",
