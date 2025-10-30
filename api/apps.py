@@ -5,6 +5,8 @@ class ApiConfig(AppConfig):
     name = 'api'
 
     def ready(self):
+        # Importar admin para asegurar que los modelos se registren
+        import api.admin  # noqa: F401
         # importa y registra los signals del módulo notifications_mobile
         import api.notifications_mobile.signals_consulta  # noqa: F401
         # importa y registra los signals de gestión de roles de usuario

@@ -58,24 +58,38 @@ class TenantFilteredAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
 
-# Registrar modelos con filtrado por tenant
-# IMPORTANTE: Registrar en tenant_admin_site (para subdominios) Y public_admin_site (para admin general)
-@admin.register(Empresa, site=tenant_admin_site)
+# ==========================================
+# ADMIN PÚBLICO (Solo gestión de empresas)
+# ==========================================
 @admin.register(Empresa, site=public_admin_site)
-class EmpresaAdmin(admin.ModelAdmin):
-    list_display = ('nombre', 'subdomain', 'activo', 'fecha_creacion')
-    list_filter = ('activo',)
-    search_fields = ('nombre', 'subdomain')
+class EmpresaAdminPublic(admin.ModelAdmin):
+    """Admin de Empresas SOLO para superadmin (gestión multi-tenant)"""
+    list_display = ('nombre', 'subdomain', 'activo', 'fecha_creacion', 'stripe_customer_id')
+    list_filter = ('activo', 'fecha_creacion')
+    search_fields = ('nombre', 'subdomain', 'stripe_customer_id')
+    readonly_fields = ('fecha_creacion',)
     
     def has_module_permission(self, request):
-        """Superusers siempre tienen permiso"""
-        if request.user.is_superuser:
-            return True
-        return super().has_module_permission(request)
+        """Solo superusers pueden ver empresas en admin público"""
+        return request.user.is_superuser
+
+
+# ==========================================
+# ADMIN DE TENANTS (Gestión por clínica)
+# ==========================================
+@admin.register(Empresa, site=tenant_admin_site)
+class EmpresaAdmin(admin.ModelAdmin):
+    """Empresas en tenant admin (solo lectura, para referencia)"""
+    list_display = ('nombre', 'subdomain', 'activo')
+    
+    def has_add_permission(self, request):
+        return False  # No crear empresas desde tenant
+    
+    def has_delete_permission(self, request, obj=None):
+        return False  # No eliminar empresas desde tenant
 
 
 @admin.register(Usuario, site=tenant_admin_site)
-@admin.register(Usuario, site=public_admin_site)
 class UsuarioAdmin(TenantFilteredAdmin):
     list_display = ('codigo', 'nombre', 'apellido', 'correoelectronico', 'empresa', 'idtipousuario')
     list_filter = ('idtipousuario', 'empresa')
@@ -83,7 +97,6 @@ class UsuarioAdmin(TenantFilteredAdmin):
 
 
 @admin.register(Paciente, site=tenant_admin_site)
-@admin.register(Paciente, site=public_admin_site)
 class PacienteAdmin(TenantFilteredAdmin):
     list_display = ('get_nombre', 'carnetidentidad', 'fechanacimiento', 'empresa')
     search_fields = ('codusuario__nombre', 'codusuario__apellido', 'carnetidentidad')
@@ -94,7 +107,6 @@ class PacienteAdmin(TenantFilteredAdmin):
 
 
 @admin.register(Odontologo, site=tenant_admin_site)
-@admin.register(Odontologo, site=public_admin_site)
 class OdontologoAdmin(TenantFilteredAdmin):
     list_display = ('get_nombre', 'especialidad', 'nromatricula', 'empresa')
     search_fields = ('codusuario__nombre', 'codusuario__apellido', 'nromatricula')
@@ -105,7 +117,6 @@ class OdontologoAdmin(TenantFilteredAdmin):
 
 
 @admin.register(Recepcionista, site=tenant_admin_site)
-@admin.register(Recepcionista, site=public_admin_site)
 class RecepcionistaAdmin(TenantFilteredAdmin):
     list_display = ('get_nombre', 'empresa')
     search_fields = ('codusuario__nombre', 'codusuario__apellido')
@@ -116,7 +127,6 @@ class RecepcionistaAdmin(TenantFilteredAdmin):
 
 
 @admin.register(Consulta, site=tenant_admin_site)
-@admin.register(Consulta, site=public_admin_site)
 class ConsultaAdmin(TenantFilteredAdmin):
     list_display = ('id', 'fecha', 'get_paciente', 'get_odontologo', 'idestadoconsulta', 'empresa')
     list_filter = ('fecha', 'idestadoconsulta', 'empresa')
@@ -134,7 +144,6 @@ class ConsultaAdmin(TenantFilteredAdmin):
 
 
 @admin.register(Historialclinico, site=tenant_admin_site)
-@admin.register(Historialclinico, site=public_admin_site)
 class HistorialclinicoAdmin(TenantFilteredAdmin):
     list_display = ('id', 'get_paciente', 'episodio', 'fecha', 'empresa')
     list_filter = ('fecha', 'empresa')
@@ -146,7 +155,6 @@ class HistorialclinicoAdmin(TenantFilteredAdmin):
 
 
 @admin.register(Bitacora, site=tenant_admin_site)
-@admin.register(Bitacora, site=public_admin_site)
 class BitacoraAdmin(TenantFilteredAdmin):
     list_display = ('id', 'get_usuario', 'accion', 'tabla_afectada', 'timestamp', 'empresa')
     list_filter = ('accion', 'timestamp', 'empresa')
@@ -176,7 +184,6 @@ class ComboServicioDetalleInline(admin.TabularInline):
 
 
 @admin.register(ComboServicio, site=tenant_admin_site)
-@admin.register(ComboServicio, site=public_admin_site)
 class ComboServicioAdmin(TenantFilteredAdmin):
     list_display = ('id', 'nombre', 'tipo_precio', 'valor_precio', 'get_precio_final', 
                     'get_cantidad_servicios', 'activo', 'empresa', 'fecha_creacion')
@@ -233,7 +240,6 @@ class ComboServicioAdmin(TenantFilteredAdmin):
 
 
 @admin.register(SesionTratamiento, site=tenant_admin_site)
-@admin.register(SesionTratamiento, site=public_admin_site)
 class SesionTratamientoAdmin(TenantFilteredAdmin):
     """Admin para gestionar sesiones de tratamiento."""
     list_display = ('id', 'get_paciente', 'get_servicio', 'fecha_sesion', 
@@ -283,7 +289,6 @@ class SesionTratamientoAdmin(TenantFilteredAdmin):
 
 
 @admin.register(Evidencia, site=tenant_admin_site)
-@admin.register(Evidencia, site=public_admin_site)
 class EvidenciaAdmin(TenantFilteredAdmin):
     """
     Admin para gestión de evidencias (archivos subidos).
